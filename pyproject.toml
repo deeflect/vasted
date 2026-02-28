@@ -17,6 +17,10 @@ dependencies = [
 telegram = ["python-telegram-bot>=21.0"]
 dev = ["pytest", "ruff", "mypy", "types-PyYAML", "pytest-asyncio", "httpx[test]"]
 
+[project.urls]
+Homepage = "https://github.com/borb/vasted"
+Repository = "https://github.com/borb/vasted"
+
 [project.scripts]
 vasted = "app.cli:cli"
 
@@ -29,6 +33,8 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]

@@ -29,11 +29,50 @@
 
 ## Quick start
 
+Choose one install path:
+
 ```bash
+# Option A: install as a uv tool
+uv tool install .
+```
+
+```bash
+# Option B: local dev environment
 uv sync
+```
+
+Then run setup + start:
+
+```bash
 uv run vasted setup
 uv run vasted serve
 uv run vasted up
+```
+
+`setup` supports two interactive modes:
+- **Express (recommended):** 2 questions only (Vast API key + model), then auto-configures GPU/quality/proxy/token.
+- **Advanced:** full manual control over proxy, GPU preset, quality, and Telegram.
+
+### Express setup flow (2 questions)
+
+```text
+? Vast.ai API key: ********
+? Model [qwen3-8b]: qwen3-coder-30b
+```
+
+### Example copy-paste output
+
+```text
+✅ Config saved to ~/.config/vasted/config.yaml
+
+Next commands:
+  vasted serve
+  vasted up
+
+OpenAI endpoint:
+  http://127.0.0.1:8080/v1
+Authorization:
+  Bearer <your-token>
 ```
 
 Use endpoint:
@@ -68,12 +107,31 @@ vasted completions fish | source
 
 To persist, add the command to your shell rc file.
 
+## Curated models
+
+| Key | Hugging Face repo | File | Recommended context | Notes |
+|---|---|---|---:|---|
+| `qwen3-8b` | `bartowski/Qwen_Qwen3-8B-GGUF` | `Qwen_Qwen3-8B-Q4_K_M.gguf` | 32768 | Fast general-purpose model, great for chat and reasoning. |
+| `gemma-3-12b` | `bartowski/google_gemma-3-12b-it-GGUF` | `google_gemma-3-12b-it-Q4_K_M.gguf` | 32768 | Strong instruction following and reasoning. |
+| `qwen3-coder-30b` | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` | `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` | 65536 | Best open-source coding model, MoE architecture. |
+| `deepseek-coder-v2-lite` | `bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF` | `DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf` | 65536 | Lightweight coding model, low VRAM. |
+| `qwen2.5-7b` | `bartowski/Qwen2.5-7B-Instruct-GGUF` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 32768 | Proven speed/quality tradeoff. |
+| `qwen2.5-coder-7b` | `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | `qwen2.5-coder-7b-instruct-q4_k_m.gguf` | 65536 | Code-focused, balanced cost/quality. |
+| `codestral-22b` | `bartowski/Codestral-22B-v0.1-GGUF` | `Codestral-22B-v0.1-Q4_K_M.gguf` | 32768 | High-quality coding, needs larger GPU. |
+
 ## Model input formats
 
-- Curated keys (e.g. `qwen2.5-7b`, `deepseek-coder-v2-lite`)
-- Known Ollama aliases (e.g. `qwen2.5:7b`, `codestral:22b`)
+- Curated keys (e.g. `qwen3-8b`, `gemma-3-12b`, `qwen3-coder-30b`, `deepseek-coder-v2-lite`, `codestral-22b`)
+- Known Ollama aliases (e.g. `qwen3:8b`, `gemma3:12b`, `deepseek-coder:lite`, `codestral`)
 - Direct HF GGUF ref (`org/repo:model.gguf`)
 - Hugging Face resolve URL (`https://huggingface.co/.../resolve/main/model.gguf`)
+
+## Install as a tool
+
+```bash
+uv tool install .
+vasted --help
+```
 
 ## Maintenance
 

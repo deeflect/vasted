@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 
-from app.commands.common import console, error_panel
+from app.commands.common import console, error_panel, print_client_config
 from app.config import GPU_PRESETS
 from app.service import require_config, start_worker
 from app.vast import VastAPI, VastAPIError, VastAuthError
@@ -64,6 +64,7 @@ def up(model_override: str | None, profile_name: str | None, max_price: float | 
         panel.add_row("Price", f"${result.price_per_hour:.4f}/hr")
         panel.add_row("Proxy endpoint", f"http://{cfg.proxy_host}:{cfg.proxy_port}/v1")
         console.print(Panel(panel, title="[green]Worker ready[/green]", border_style="green"))
+        print_client_config(f"http://{cfg.proxy_host}:{cfg.proxy_port}/v1", cfg.bearer_token_plain, result.model)
     except (RuntimeError, TimeoutError, VastAuthError, VastAPIError, ValueError) as exc:
         error_panel("Failed to start worker", str(exc))
         raise click.ClickException(str(exc)) from exc

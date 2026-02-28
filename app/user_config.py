@@ -37,7 +37,7 @@ class UserConfig:
     vast_api_key_plain: str = ""
     bearer_token_plain: str = ""
     telegram_token_plain: str | None = None
-    model: str = "qwen2.5-7b"
+    model: str = "qwen3-8b"
     quality_profile: str = "balanced"
     gpu_preset: str = "1xa100-80gb"
     instance_type: str = "any"

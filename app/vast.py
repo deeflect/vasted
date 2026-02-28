@@ -8,7 +8,11 @@ from typing import Any, TypedDict, cast
 import httpx
 
 from app.config import GPU_PRESETS, QUALITY_PROFILES
-from app.defaults import DEFAULT_LLAMA_CPP_IMAGE, DEFAULT_VAST_BASE_URL
+from app.defaults import (
+    DEFAULT_LLAMA_CPP_IMAGE,
+    DEFAULT_LLAMA_CPP_PORT,
+    DEFAULT_VAST_BASE_URL,
+)
 from app.models import ModelSpec
 
 
@@ -61,28 +65,91 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
 
-def _parse_worker_port(ports: Any) -> int:
-    if isinstance(ports, int):
-        return ports
-    if isinstance(ports, list):
-        for item in ports:
-            p = _parse_worker_port(item)
-            if p:
-                return p
-        return 8000
-    if isinstance(ports, dict):
-        for key in ("8000/tcp", "8000", 8000):
-            if key in ports:
-                return _parse_worker_port(ports[key])
-        for value in ports.values():
-            p = _parse_worker_port(value)
-            if p:
-                return p
-    if isinstance(ports, str):
-        m = re.search(r"(\d{2,5})", ports)
+def _extract_port_value(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        if value.isdigit():
+            return int(value)
+        m = re.search(r"\b(\d{2,5})\b", value)
         if m:
             return int(m.group(1))
-    return 8000
+        return None
+    if isinstance(value, list):
+        for item in value:
+            port = _extract_port_value(item)
+            if port:
+                return port
+        return None
+    if isinstance(value, dict):
+        for key in (
+            "HostPort",
+            "host_port",
+            "public_port",
+            "external_port",
+            "mapped_port",
+            "published",
+            "host",
+        ):
+            port = _extract_port_value(value.get(key))
+            if port:
+                return port
+        for key in ("port", "container_port", "internal_port", "private_port"):
+            port = _extract_port_value(value.get(key))
+            if port:
+                return port
+        for nested in value.values():
+            port = _extract_port_value(nested)
+            if port:
+                return port
+    return None
+
+
+def _port_matches(key: Any, service_port: int) -> bool:
+    m = re.search(r"(\d+)", str(key))
+    return bool(m and int(m.group(1)) == service_port)
+
+
+def _parse_worker_port(ports: Any, service_port: int = DEFAULT_LLAMA_CPP_PORT) -> int | None:
+    if isinstance(ports, dict):
+        for key, value in ports.items():
+            if _port_matches(key, service_port):
+                port = _extract_port_value(value)
+                if port:
+                    return port
+    elif isinstance(ports, list):
+        for item in ports:
+            if not isinstance(item, dict):
+                continue
+            for key in ("container_port", "internal_port", "private_port", "port", "target_port"):
+                raw = item.get(key)
+                if raw is None or not str(raw).isdigit() or int(str(raw)) != service_port:
+                    continue
+                port = _extract_port_value(item)
+                if port:
+                    return port
+    return None
+
+
+def _extract_public_host(info: dict[str, Any] | VastInstance) -> str | None:
+    for key in ("public_ipaddr", "public_ip", "ssh_host", "host", "hostname"):
+        value = info.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _unwrap_instances_payload(payload: Any) -> dict[str, Any] | None:
+    if isinstance(payload, list):
+        return cast(dict[str, Any] | None, payload[0] if payload else None)
+    if not isinstance(payload, dict):
+        return None
+    inst = payload.get("instances")
+    if isinstance(inst, dict):
+        return cast(dict[str, Any], inst)
+    if isinstance(inst, list):
+        return cast(dict[str, Any] | None, inst[0] if inst else None)
+    return cast(dict[str, Any], payload)
 
 
 class VastAPI:
@@ -109,45 +176,38 @@ class VastAPI:
         raise VastAPIError(f"Vast API request failed: {method} {path}: {last_err}")
 
     def validate_api_key(self) -> VastUserInfo:
-        data = self._request("GET", "/users/current/").json()
+        data = self._request("GET", "/users/current").json()
         if not isinstance(data, dict):
-            raise VastAPIError("Unexpected response from /users/current/")
+            raise VastAPIError("Unexpected response from /users/current")
         return cast(VastUserInfo, data)
 
     def search_offers(self, gpu_preset: str, instance_type: str = "any", limit: int = 50) -> list[VastOffer]:
         preset = GPU_PRESETS[gpu_preset]
-        gpu_name = preset.search.replace(" ", "_")
-        q = (
-            "verified=true "
-            f"gpu_name={gpu_name} "
-            f"gpu_ram>={preset.min_vram_gb} "
-            "num_gpus=1 rentable=true "
-            "reliability>=0.95 inet_down>=200 inet_up>=200"
-        )
-        rows = self._request("GET", "/bundles/", params={"q": q, "limit": limit}).json()
-        offers: list[VastOffer] = rows if isinstance(rows, list) else rows.get("offers", rows.get("results", []))
+        query: dict[str, Any] = {
+            "verified": {"eq": True},
+            "external": {"eq": False},
+            "rentable": {"eq": True},
+            "rented": {"eq": False},
+            "gpu_name": {"eq": preset.search},
+            "gpu_ram": {"gte": preset.min_vram_gb},
+            "num_gpus": {"eq": preset.num_gpus},
+            "reliability": {"gte": 0.95},
+            "inet_down": {"gte": 200},
+            "inet_up": {"gte": 200},
+            "allocated_storage": 1.0,
+            "order": [["dph_total", "asc"]],
+            "limit": limit,
+            "type": instance_type,
+        }
+        if query["type"] == "spot":
+            query["type"] = "bid"
+        rows = self._request("POST", "/bundles/", json=query).json()
+        if not isinstance(rows, dict):
+            return []
+        offers = rows.get("offers", [])
         if not isinstance(offers, list):
             return []
-
-        if instance_type == "on-demand":
-            offers = [o for o in offers if not bool(o.get("interruptible", False))]
-        elif instance_type == "spot":
-            offers = [o for o in offers if bool(o.get("interruptible", False))]
-
-        return sorted(offers, key=lambda x: float(x.get("dph_total") or x.get("dph") or 1e9))
-
-    def find_template_hash_id(self) -> str | None:
-        try:
-            data = self._request("GET", "/templates/", params={"q": "llama cpp"}).json()
-        except Exception:
-            return None
-        items = data if isinstance(data, list) else data.get("results", []) if isinstance(data, dict) else []
-        for item in items:
-            if isinstance(item, dict):
-                h = item.get("template_hash_id") or item.get("hash_id")
-                if h:
-                    return str(h)
-        return None
+        return cast(list[VastOffer], offers)
 
     def estimate_disk_gb(self, model_spec: ModelSpec) -> int:
         size_gb = 20
@@ -175,6 +235,18 @@ class VastAPI:
             size_gb = max(size_gb, 8)
         return max(40, size_gb + 20)
 
+    def _build_onstart(self, model_spec: ModelSpec, quality_profile: str, api_token: str | None = None) -> str:
+        """Build onstart script. Binary is at /app/llama-server in the official image."""
+        ctx = QUALITY_PROFILES[quality_profile].context_length
+        port = DEFAULT_LLAMA_CPP_PORT
+        api_key_flag = f" --api-key {api_token}" if api_token else ""
+        return (
+            "#!/bin/bash\nset -e\n"
+            f"exec /app/llama-server --host 0.0.0.0 --port {port}"
+            f" --hf-repo {model_spec.hf_repo} --hf-file {model_spec.filename}"
+            f" -c {ctx} -np 1 -cb --flash-attn on -ngl -1{api_key_flag}\n"
+        )
+
     def create_instance(
         self,
         offer_id: int,
@@ -182,73 +254,73 @@ class VastAPI:
         quality_profile: str,
         gpu_preset: str,
         image: str = DEFAULT_LLAMA_CPP_IMAGE,
+        api_token: str | None = None,
     ) -> int:
-        ctx = QUALITY_PROFILES[quality_profile].context_length
-        preset = GPU_PRESETS[gpu_preset]
+        _ = GPU_PRESETS[gpu_preset]
+        onstart = self._build_onstart(model_spec, quality_profile, api_token=api_token)
+        port = DEFAULT_LLAMA_CPP_PORT
         payload: dict[str, Any] = {
-            "ask_id": offer_id,
-            "num_gpus": preset.num_gpus,
-            "gpu_name": preset.search,
-            "env": {
-                "MODEL_REPO": model_spec.hf_repo,
-                "MODEL_FILE": model_spec.filename,
-                "LLAMA_ARG_CTX_SIZE": str(ctx),
-                "LLAMA_ARG_N_GPU_LAYERS": "-1",
-            },
+            "client_id": "me",
+            "image": image,
+            "runtype": "ssh_direc ssh_proxy",
+            "onstart": onstart,
+            "env": {f"-p {port}:{port}": "1"},
             "disk": self.estimate_disk_gb(model_spec),
-            "ssh": False,
-            "jupyter": False,
-            "direct": True,
         }
-        template_hash_id = self.find_template_hash_id()
-        if template_hash_id:
-            payload["template_hash_id"] = template_hash_id
-        else:
-            payload["image"] = image
 
-        data = self._request("PUT", "/asks/", json=payload).json()
-        instance_id = data.get("new_contract") or data.get("instance_id") or data.get("id")
-        if not instance_id:
+        data = self._request("PUT", f"/asks/{offer_id}/", json=payload).json()
+        if not isinstance(data, dict):
+            raise VastAPIError(f"Unexpected create response: {data}")
+        instance_id = data.get("new_contract")
+        if instance_id is None:
             raise VastAPIError(f"Unable to parse instance id from Vast response: {data}")
         return int(instance_id)
 
     def destroy_instance(self, instance_id: int) -> None:
-        try:
-            self._request("DELETE", f"/instances/{instance_id}/")
-        except VastAPIError as exc:
-            if "404" in str(exc):
-                return
-            raise
+        self._request("DELETE", f"/instances/{instance_id}/")
 
     def get_instance_status(self, instance_id: int) -> VastInstance:
-        data = self._request("GET", f"/instances/{instance_id}/").json()
-        if not isinstance(data, dict):
+        data = self._request("GET", f"/instances/{instance_id}/", params={"owner": "me"}).json()
+        row = _unwrap_instances_payload(data)
+        if not isinstance(row, dict):
             raise VastAPIError("Unexpected instance status response")
-        return cast(VastInstance, data)
+        return cast(VastInstance, row)
 
     def refresh_worker_url(self, instance_id: int) -> str | None:
         status = self.get_instance_status(instance_id)
-        public_ip = status.get("public_ipaddr") or status.get("ssh_host")
+        public_ip = _extract_public_host(status)
         if not public_ip:
             return None
-        port = _parse_worker_port(status.get("ports") or {})
+        port = _parse_worker_port(status.get("ports"), DEFAULT_LLAMA_CPP_PORT)
+        if not port:
+            return None
         return f"http://{public_ip}:{port}"
 
-    def wait_for_ready(self, instance_id: int, timeout: int = 600) -> str:
+    def wait_for_ready(self, instance_id: int, timeout: int = 600, api_token: str | None = None) -> str:
         deadline = time.time() + timeout
+        health_headers: dict[str, str] = {}
+        if api_token:
+            health_headers["Authorization"] = f"Bearer {api_token}"
         while time.time() < deadline:
             status = self.get_instance_status(instance_id)
             actual = (status.get("actual_status") or status.get("status") or "").lower()
+            status_msg = str(status.get("status_msg", ""))
+            if "error" in status_msg.lower() or "failed" in status_msg.lower():
+                raise VastAPIError(f"Instance failed: {status_msg}")
             worker_url = self.refresh_worker_url(instance_id)
             if actual in {"running", "loaded", "online"} and worker_url:
-                for path in ("/v1/models", "/health"):
+                for path in ("/health", "/v1/models"):
                     try:
-                        r = httpx.get(f"{worker_url}{path}", timeout=httpx.Timeout(10.0, connect=5.0))
-                        if r.status_code < 500:
+                        r = httpx.get(
+                            f"{worker_url}{path}",
+                            headers=health_headers,
+                            timeout=httpx.Timeout(10.0, connect=5.0),
+                        )
+                        if r.status_code == 200:
                             return worker_url
                     except Exception:
                         pass
-            time.sleep(5)
+            time.sleep(10)
         raise TimeoutError(f"Instance {instance_id} did not become ready within {timeout}s")
 
     def get_billing(self, instance_id: int, estimated_cost: float) -> BillingInfo:

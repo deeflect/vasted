@@ -19,54 +19,54 @@ class CuratedModel:
 
 
 CURATED_MODELS: dict[str, CuratedModel] = {
-    "qwen2.5-7b": CuratedModel(
-        "qwen2.5-7b",
-        "Qwen/Qwen2.5-7B-Instruct-GGUF",
-        "qwen2.5-7b-instruct-q4_k_m.gguf",
+    "qwen3-8b": CuratedModel(
+        "qwen3-8b",
+        "bartowski/Qwen_Qwen3-8B-GGUF",
+        "Qwen_Qwen3-8B-Q4_K_M.gguf",
         32768,
-        "Great speed/quality tradeoff for general assistant tasks.",
+        "Fast general-purpose model, great for chat and reasoning. [recommended]",
     ),
-    "llama-3.1-8b": CuratedModel(
-        "llama-3.1-8b",
-        "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
-        "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+    "gemma-3-12b": CuratedModel(
+        "gemma-3-12b",
+        "bartowski/google_gemma-3-12b-it-GGUF",
+        "google_gemma-3-12b-it-Q4_K_M.gguf",
         32768,
-        "Strong general model with broad ecosystem support.",
+        "Google's latest, strong reasoning and instruction following.",
     ),
-    "qwen2.5-coder-7b": CuratedModel(
-        "qwen2.5-coder-7b",
-        "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
-        "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+    "qwen3-coder-30b": CuratedModel(
+        "qwen3-coder-30b",
+        "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+        "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
         65536,
-        "Code-focused model with good quality/cost balance.",
+        "Best open-source coding model. MoE architecture, fast for its size.",
     ),
     "deepseek-coder-v2-lite": CuratedModel(
         "deepseek-coder-v2-lite",
         "bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF",
         "DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf",
         65536,
-        "Strong coding model with long context and low VRAM pressure.",
+        "Lightweight coding model, low VRAM, solid performance.",
     ),
-    "codestral": CuratedModel(
-        "codestral",
+    "qwen2.5-7b": CuratedModel(
+        "qwen2.5-7b",
+        "bartowski/Qwen2.5-7B-Instruct-GGUF",
+        "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        32768,
+        "Proven workhorse, great speed/quality tradeoff.",
+    ),
+    "qwen2.5-coder-7b": CuratedModel(
+        "qwen2.5-coder-7b",
+        "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+        "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        65536,
+        "Code-focused, good quality/cost balance.",
+    ),
+    "codestral-22b": CuratedModel(
+        "codestral-22b",
         "bartowski/Codestral-22B-v0.1-GGUF",
         "Codestral-22B-v0.1-Q4_K_M.gguf",
         32768,
-        "High-quality coding model; best on bigger GPUs.",
-    ),
-    "phi-3": CuratedModel(
-        "phi-3",
-        "bartowski/Phi-3-medium-128k-instruct-GGUF",
-        "Phi-3-medium-128k-instruct-Q4_K_M.gguf",
-        131072,
-        "Compact model with excellent long-context efficiency.",
-    ),
-    "mistral-nemo": CuratedModel(
-        "mistral-nemo",
-        "bartowski/Mistral-Nemo-Instruct-2407-GGUF",
-        "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf",
-        131072,
-        "General-purpose long-context model with strong reasoning.",
+        "High-quality coding, needs bigger GPU (L40S/A100).",
     ),
 }
 

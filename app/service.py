@@ -59,10 +59,15 @@ def start_worker(model_override: str | None = None, force: bool = False) -> UpRe
     price = float(best.get("dph_total") or best.get("dph") or 0.0)
 
     instance_id = api.create_instance(
-        offer_id, model_spec, cfg.quality_profile, cfg.gpu_preset, image=cfg.llama_cpp_image
+        offer_id,
+        model_spec,
+        cfg.quality_profile,
+        cfg.gpu_preset,
+        image=cfg.llama_cpp_image,
+        api_token=cfg.bearer_token_plain,
     )
     try:
-        worker_url = api.wait_for_ready(instance_id)
+        worker_url = api.wait_for_ready(instance_id, api_token=cfg.bearer_token_plain)
     except TimeoutError as exc:
         api.destroy_instance(instance_id)
         clear_state()

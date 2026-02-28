@@ -6,6 +6,7 @@ import json
 import re
 import signal
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import cast
 from urllib.parse import urlparse
@@ -121,8 +122,9 @@ async def forward(request: Request) -> Response:
     target = f"{state.worker_url.rstrip('/')}/v1{suffix}"
 
     body = await request.body()
-    # Never forward proxy bearer to worker.
+    # Replace proxy bearer with worker auth token (OPEN_BUTTON_TOKEN = bearer_token).
     headers = {k: v for k, v in request.headers.items() if k.lower() not in {"host", "content-length", "authorization"}}
+    headers["Authorization"] = f"Bearer {cfg.bearer_token_plain}"
 
     client = cast(httpx.AsyncClient | None, request.app.state.client)
     assert client is not None
@@ -210,6 +212,7 @@ async def forward(request: Request) -> Response:
     return Response(content=raw, status_code=upstream.status_code, media_type=content_type, headers=passthrough_headers)
 
 
+@asynccontextmanager
 async def _lifespan(app: Starlette):
     ConfigCache.reload()
     app.state.client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=120.0))

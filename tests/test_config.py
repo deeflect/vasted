@@ -8,7 +8,7 @@ def test_config_roundtrip(tmp_path: Path) -> None:
     cfg = UserConfig(
         vast_api_key_plain="k",
         bearer_token_plain="b",
-        model="qwen2.5-7b",
+        model="qwen3-8b",
         quality_profile="balanced",
         gpu_preset="1xa100-80gb",
         max_requests_per_minute=123,
@@ -23,7 +23,7 @@ def test_config_roundtrip(tmp_path: Path) -> None:
 
 def test_config_missing_file(tmp_path: Path) -> None:
     cfg = load_config(tmp_path / "missing.yaml")
-    assert cfg.model == "qwen2.5-7b"
+    assert cfg.model == "qwen3-8b"
 
 
 def test_config_invalid_yaml(tmp_path: Path) -> None:

@@ -27,7 +27,7 @@ uv run vasted up
 3. Config (user prefs) and state (active worker) are separate files
 4. Bearer token is fixed by user at setup; worker auth is hidden
 5. llama.cpp with GGUF models only (v1)
-6. Use template_hash_id for Vast templates, don't force image
+6. Use raw Docker image launch flow (no Vast templates): `ghcr.io/ggml-org/llama.cpp:server-cuda` + onstart script
 
 ## Spec
 Full spec: `docs/spec.md`

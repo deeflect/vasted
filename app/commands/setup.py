@@ -8,9 +8,9 @@ import httpx
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
-from app.commands.common import console
+from app.commands.common import console, print_client_config
 from app.config import CURATED_MODELS, GPU_PRESETS, QUALITY_PROFILES
-from app.models import resolve_model
+from app.models import resolve_model, suggest_gpu_preset
 from app.user_config import load_config, save_config
 from app.vast import VastAPI, VastAuthError
 
@@ -57,6 +57,36 @@ def _detect_public_ip() -> str | None:
         return None
 
 
+def _pick_model(default_model: str) -> str:
+    model_keys = list(CURATED_MODELS.keys())
+    model_rows = [[str(i + 1), k, CURATED_MODELS[k].description] for i, k in enumerate(model_keys)]
+    model_rows.append([str(len(model_rows) + 1), "Custom", "org/repo:file.gguf or HF URL"])
+    default_idx = model_keys.index(default_model) + 1 if default_model in model_keys else 1
+    idx = _choose("Choose default model", model_rows, default_index=default_idx)
+    if idx == len(model_keys):
+        while True:
+            custom = Prompt.ask("Custom model")
+            try:
+                resolve_model(custom)
+                return custom
+            except ValueError as exc:
+                console.print(f"[yellow]{exc}[/yellow]")
+    return model_keys[idx]
+
+
+def _validate_api_key_loop(cfg_api_key: str, base_url: str) -> str:
+    key = cfg_api_key
+    while True:
+        key = Prompt.ask("Vast API key", default=key, password=True)
+        try:
+            with console.status("Validating Vast API key..."):
+                user = VastAPI(key, base_url).validate_api_key()
+            console.print(f"[green]✓ Valid API key[/green] ({user.get('username') or user.get('email') or 'unknown'})")
+            return key
+        except VastAuthError:
+            console.print("[yellow]Invalid API key. Please try again.[/yellow]")
+
+
 @click.command()
 @click.option("--vast-api-key", default=None)
 @click.option("--bearer-token", default=None)
@@ -92,39 +122,34 @@ def setup(
             raise click.ClickException("Port must be 1024-65535")
         save_config(cfg)
         console.print("[green]Saved configuration (non-interactive).[/green]")
+        print_client_config(f"http://{cfg.proxy_host}:{cfg.proxy_port}/v1", cfg.bearer_token_plain, cfg.model)
         return
 
     console.print(Panel.fit("[bold cyan]Vasted Setup Wizard[/bold cyan]", border_style="cyan"))
 
-    while True:
-        cfg.vast_api_key_plain = Prompt.ask("Vast API key", default=cfg.vast_api_key_plain, password=True)
-        try:
-            with console.status("Validating Vast API key..."):
-                user = VastAPI(cfg.vast_api_key_plain, cfg.vast_base_url).validate_api_key()
-            console.print(f"[green]✓ Valid API key[/green] ({user.get('username') or user.get('email') or 'unknown'})")
-            break
-        except VastAuthError:
-            console.print("[yellow]Invalid API key. Please try again.[/yellow]")
+    mode = Prompt.ask("Setup mode", choices=["express", "advanced"], default="express")
+    cfg.vast_api_key_plain = _validate_api_key_loop(cfg.vast_api_key_plain, cfg.vast_base_url)
+
+    if mode == "express":
+        cfg.model = _pick_model("qwen3-8b")
+        model_spec = resolve_model(cfg.model)
+        cfg.gpu_preset = suggest_gpu_preset(model_spec)
+        cfg.quality_profile = "balanced"
+        cfg.proxy_host = "127.0.0.1"
+        cfg.proxy_port = 4318
+        cfg.bearer_token_plain = secrets.token_urlsafe(32)
+        save_config(cfg)
+        console.print("[green]Express setup complete[/green]")
+        console.print(f"Auto-picked GPU preset: [cyan]{GPU_PRESETS[cfg.gpu_preset].name}[/cyan]")
+        print_client_config(f"http://{cfg.proxy_host}:{cfg.proxy_port}/v1", cfg.bearer_token_plain, cfg.model)
+        return
 
     detected = _detect_public_ip() or cfg.proxy_host
     cfg.proxy_host = Prompt.ask("Proxy host", default=proxy_host or detected)
     cfg.proxy_port = _ask_port(proxy_port or int(cfg.proxy_port))
     cfg.bearer_token_plain = Prompt.ask("Proxy bearer token", default=secrets.token_urlsafe(32), password=True)
 
-    model_keys = list(CURATED_MODELS.keys())
-    model_rows = [[str(i + 1), k, CURATED_MODELS[k].description] for i, k in enumerate(model_keys)]
-    model_rows.append([str(len(model_rows) + 1), "Custom", "org/repo:file.gguf or HF URL"])
-    idx = _choose("Choose default model", model_rows)
-    if idx == len(model_keys):
-        while True:
-            cfg.model = Prompt.ask("Custom model")
-            try:
-                resolve_model(cfg.model)
-                break
-            except ValueError as exc:
-                console.print(f"[yellow]{exc}[/yellow]")
-    else:
-        cfg.model = model_keys[idx]
+    cfg.model = _pick_model(cfg.model)
 
     gpu_keys = list(GPU_PRESETS.keys())
     cfg.gpu_preset = gpu_keys[
@@ -137,7 +162,9 @@ def setup(
     quality_keys = list(QUALITY_PROFILES.keys())
     cfg.quality_profile = quality_keys[
         _choose(
-            "Choose quality", [[str(i + 1), k, QUALITY_PROFILES[k].use_case] for i, k in enumerate(quality_keys)], 2
+            "Choose quality",
+            [[str(i + 1), k, QUALITY_PROFILES[k].use_case] for i, k in enumerate(quality_keys)],
+            2,
         )
     ]
 
@@ -148,4 +175,5 @@ def setup(
         cfg.telegram_chat_id = Prompt.ask("Telegram chat/user ID", default=cfg.telegram_chat_id or "") or None
 
     save_config(cfg)
-    console.print("[green]Setup complete[/green]")
+    console.print("[green]Advanced setup complete[/green]")
+    print_client_config(f"http://{cfg.proxy_host}:{cfg.proxy_port}/v1", cfg.bearer_token_plain, cfg.model)

@@ -55,15 +55,16 @@ One user: configure once → get one stable OpenAI-compatible endpoint → start
 - Unknown Ollama alias → prompt for HF GGUF repo
 
 ## Vast Behavior
-- Use `template_hash_id` for templates
-- Don't force image when using template
-- Env overrides only what's needed
+- Use raw Docker image launch flow (no Vast templates)
+- Image: `ghcr.io/ggml-org/llama.cpp:server-cuda`
+- Run `/app/llama-server` via onstart with explicit `--hf-repo` and `--hf-file`
+- Use `runtype: "ssh_direc ssh_proxy"` and map `-p 8000:8000`
 
 ## Anti-Patterns (Don't Do)
 1. CLI must not reuse bot handlers
-2. Don't override template startup in template mode
+2. Don't use Vast templates for llama.cpp startup
 3. Don't expose raw Vast worker URL to clients
-4. Don't use rotating template tokens for client config
+4. Don't use rotating worker tokens for client config
 5. Don't mix user config and transient worker state
 
 ## Telegram (Optional)
@@ -72,7 +73,7 @@ One user: configure once → get one stable OpenAI-compatible endpoint → start
 - No special logic — just adapter over core
 
 ## Docs
-- Vast.ai: docs.vast.ai, search offers API, create instance API, templates API
+- Vast.ai: docs.vast.ai, search offers API, create instance API, instance status API
 - llama.cpp: github.com/ggml-org/llama.cpp
 - HF GGUF: huggingface.co/docs/hub/gguf-llamacpp
 - uv: docs.astral.sh/uv/
