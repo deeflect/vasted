@@ -1,0 +1,41 @@
+[project]
+name = "vasted"
+version = "0.1.0"
+description = "Personal GPU launcher for on-demand LLM inference on Vast.ai"
+requires-python = ">=3.12"
+dependencies = [
+  "rich>=13.7.1",
+  "pyyaml>=6.0.1",
+  "httpx>=0.27.0",
+  "click>=8.1.7",
+  "starlette>=0.37.2",
+  "uvicorn>=0.30.0",
+  "keyring>=25.0.0",
+]
+
+[project.optional-dependencies]
+telegram = ["python-telegram-bot>=21.0"]
+dev = ["pytest", "ruff", "mypy", "types-PyYAML", "pytest-asyncio", "httpx[test]"]
+
+[project.scripts]
+vasted = "app.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["telegram", "telegram.*"]
+ignore_missing_imports = true
