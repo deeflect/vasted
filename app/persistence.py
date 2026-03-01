@@ -54,16 +54,16 @@ def load_dataclass(path: Path, cls: type[Any], defaults: Any, schema_version: in
         return defaults
 
     current_version = int(raw.get("schema_version", 0) or 0)
-    if current_version != schema_version:
-        raw["schema_version"] = schema_version
-
     allowed = {f.name for f in fields(cls)}
     filtered = {k: v for k, v in raw.items() if k in allowed}
 
     merged = asdict(defaults)
     merged.update(filtered)
     obj = cls(**merged)
-    save_dataclass(path, obj)
+    normalized = asdict(obj)
+    needs_persist = current_version != schema_version or len(filtered) != len(raw) or normalized != filtered
+    if needs_persist:
+        save_dataclass(path, obj)
     return obj
 
 

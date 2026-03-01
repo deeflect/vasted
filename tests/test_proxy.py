@@ -65,3 +65,33 @@ async def test_models_endpoint() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get("/v1/models")
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_proxy_preflight_uses_configured_cors(monkeypatch) -> None:
+    from app import proxy
+    from app.state import RuntimeState
+    from app.user_config import UserConfig
+
+    monkeypatch.setattr(
+        proxy.ConfigCache,
+        "get",
+        classmethod(
+            lambda cls: (
+                UserConfig(cors_origins=["https://client.example"], bearer_token_plain="good"),
+                RuntimeState(),
+            )
+        ),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.options(
+            "/v1/models",
+            headers={
+                "Origin": "https://client.example",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+    assert r.status_code == 204
+    assert r.headers["access-control-allow-origin"] == "https://client.example"
+    assert "authorization" in r.headers["access-control-allow-headers"]

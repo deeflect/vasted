@@ -8,6 +8,8 @@ from rich.console import Console
 
 from app.config import DEFAULT_CONFIG_PATH
 from app.defaults import (
+    DEFAULT_DEPLOYMENT_MODE,
+    DEFAULT_GPU_MODE,
     DEFAULT_IDLE_TIMEOUT_MINUTES,
     DEFAULT_LLAMA_CPP_IMAGE,
     DEFAULT_PROXY_HOST,
@@ -39,7 +41,10 @@ class UserConfig:
     telegram_token_plain: str | None = None
     model: str = "qwen3-8b"
     quality_profile: str = "balanced"
+    gpu_mode: str = DEFAULT_GPU_MODE
     gpu_preset: str = "1xa100-80gb"
+    deployment_mode: str = DEFAULT_DEPLOYMENT_MODE
+    public_host: str = ""
     instance_type: str = "any"
     proxy_host: str = DEFAULT_PROXY_HOST
     proxy_port: int = DEFAULT_PROXY_PORT
@@ -98,16 +103,32 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> UserConfig:
 
 def save_config(config: UserConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
     cfg = config
-    vast_ref, vast_plain = _set_secret("vast_api_key", cfg.vast_api_key_plain)
-    bearer_ref, bearer_plain = _set_secret("bearer_token", cfg.bearer_token_plain)
+    original_vast = cfg.vast_api_key_plain
+    original_bearer = cfg.bearer_token_plain
+    original_telegram = cfg.telegram_token_plain
+    use_keyring = path == DEFAULT_CONFIG_PATH
+    if use_keyring:
+        vast_ref, vast_plain = _set_secret("vast_api_key", cfg.vast_api_key_plain)
+        bearer_ref, bearer_plain = _set_secret("bearer_token", cfg.bearer_token_plain)
+    else:
+        vast_ref, vast_plain = "", cfg.vast_api_key_plain
+        bearer_ref, bearer_plain = "", cfg.bearer_token_plain
     cfg.vast_api_key_ref = vast_ref
     cfg.vast_api_key_plain = vast_plain or ""
     cfg.bearer_token_ref = bearer_ref
     cfg.bearer_token_plain = bearer_plain or ""
-    token_ref, token_plain = _set_secret("telegram_token", cfg.telegram_token_plain)
+    if use_keyring:
+        token_ref, token_plain = _set_secret("telegram_token", cfg.telegram_token_plain)
+    else:
+        token_ref, token_plain = "", cfg.telegram_token_plain
     cfg.telegram_token_ref = token_ref or None
     cfg.telegram_token_plain = token_plain
     save_dataclass(path, cfg)
+    # Keep the caller's in-memory object usable after persistence even when secrets
+    # were stored in keyring instead of plaintext YAML.
+    cfg.vast_api_key_plain = original_vast
+    cfg.bearer_token_plain = original_bearer
+    cfg.telegram_token_plain = original_telegram
 
 
 def config_exists(path: Path = DEFAULT_CONFIG_PATH) -> bool:

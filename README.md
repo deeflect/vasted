@@ -45,34 +45,29 @@ Then run setup + start:
 
 ```bash
 uv run vasted setup
-uv run vasted serve
 uv run vasted up
 ```
 
-`setup` supports two interactive modes:
-- **Express (recommended):** 2 questions only (Vast API key + model), then auto-configures GPU/quality/proxy/token.
-- **Advanced:** full manual control over proxy, GPU preset, quality, and Telegram.
+`setup` is deployment-mode driven:
+- **Local PC (default):** stable `127.0.0.1:4318` endpoint for OpenCode/OpenClaw on the same machine
+- **VPS: another device:** stable `:4318` endpoint for a remote client
+- **VPS: server + my device:** one proxy used locally on the VPS and remotely
+- **Manual / custom:** explicit host/port/public-host/Telegram overrides
 
-### Express setup flow (2 questions)
-
-```text
-? Vast.ai API key: ********
-? Model [qwen3-8b]: qwen3-coder-30b
-```
+The guided path is selection-first. You mostly choose from menus, and only type when you enter:
+- your Vast API key
+- a `Custom GGUF` model ref
 
 ### Example copy-paste output
 
 ```text
-✅ Config saved to ~/.config/vasted/config.yaml
+Setup complete
+Auto GPU floor: 1x A100 80GB
 
-Next commands:
-  vasted serve
-  vasted up
-
-OpenAI endpoint:
-  http://127.0.0.1:8080/v1
-Authorization:
-  Bearer <your-token>
+━━━ Add to your client config ━━━
+Base URL: http://127.0.0.1:4318/v1
+API Key:  <stable-token>
+Model:    qwen3-coder-30b
 ```
 
 Use endpoint:
@@ -83,12 +78,17 @@ Use endpoint:
 ## Commands
 
 - `vasted setup [--non-interactive]` — setup wizard or env/flag-only config mode
+- `vasted setup --manual` — jump straight to low-level host/port/public-host/Telegram overrides
 - `vasted serve [--watchdog] [--log-file path]` — run local proxy with optional health watchdog and JSON logs
 - `vasted up [--model ...] [--profile ...] [--max-price ...]` — pick offers, show top 3, start worker
 - `vasted down [--force]` — destroy active worker (`bot.py` always uses force mode)
 - `vasted status [--verbose]` — status and proxy endpoint (worker URL only in verbose)
+- `vasted logs [--instance-id ...] [--tail N]` — fetch exported Vast instance logs for startup/debugging
 - `vasted usage` — requests/tokens/cost and $/1M tokens
-- `vasted rotate-token` — generate and persist new bearer token
+- `vasted token show` — print the current stable bearer token
+- `vasted token rotate` — explicitly rotate the bearer token and reprint client config
+- `vasted config show` — print deployment mode, endpoint, and current model settings
+- `vasted rotate-token` — legacy compatibility alias for token rotation
 - `vasted profile list|add|use|remove` — manage model/quality/GPU named profiles
 - `vasted completions <bash|zsh|fish>` — print shell completion script
 

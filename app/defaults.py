@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 APP_NAME = "vasted"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
+DEFAULT_DEPLOYMENT_MODE = "local_pc"
 DEFAULT_PROXY_HOST = "127.0.0.1"
 DEFAULT_PROXY_PORT = 4318
 DEFAULT_IDLE_TIMEOUT_MINUTES = 30
+DEFAULT_GPU_MODE = "auto"
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 1800
+DEFAULT_MIN_CUDA_MAX_GOOD = 12.8
 
 DEFAULT_VAST_BASE_URL = "https://console.vast.ai/api/v0"
 DEFAULT_LLAMA_CPP_IMAGE = "ghcr.io/ggml-org/llama.cpp:server-cuda"

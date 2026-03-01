@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -29,7 +31,7 @@ async def up_cmd(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await _reject(update)
         return
     try:
-        r = start_worker()
+        r = await asyncio.to_thread(start_worker)
         await update.message.reply_text(
             "✅ Worker started\n"
             f"• Instance: {r.instance_id}\n"
@@ -48,7 +50,7 @@ async def down_cmd(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await _reject(update)
         return
     try:
-        r = stop_worker()
+        r = await asyncio.to_thread(stop_worker)
         u = r.usage
         billed = f"${r.billing.billed_cost:.4f}" if r.billing.billed_cost is not None else "unavailable"
         await update.message.reply_text(
@@ -69,7 +71,7 @@ async def status_cmd(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         await _reject(update)
         return
-    s = get_status()
+    s = await asyncio.to_thread(get_status)
     if not s.instance_id:
         await update.message.reply_text("🟡 No active worker")
         return
@@ -88,14 +90,14 @@ async def usage_cmd(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         await _reject(update)
         return
-    u = get_usage()
+    u = await asyncio.to_thread(get_usage)
     await update.message.reply_text(
         "📊 Usage\n"
         f"• Requests: {u.requests:,}\n"
         f"• Input tokens: {u.input_tokens:,}\n"
         f"• Output tokens: {u.output_tokens:,}\n"
         f"• Cost: ${u.total_cost:.4f}\n"
-        f"• $/1M tokens: ${u.dollars_per_million_tokens:.2f}"
+        f"• $/1M tokens: ${u.blended_dollars_per_million_tokens:.2f}"
     )
 
 

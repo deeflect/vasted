@@ -20,6 +20,8 @@ class RuntimeState:
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    prompt_ms_total: float = 0.0
+    predicted_ms_total: float = 0.0
     session_start: float | None = None
     last_request_at: float | None = None
 
