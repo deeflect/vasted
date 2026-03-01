@@ -29,7 +29,20 @@ Built by [deeflect.com](https://deeflect.com) · Follow on X: [x.com/deeflectcom
 
 ## Install
 
-### Use from source (recommended while iterating)
+### From PyPI (recommended)
+
+```bash
+uv tool install vasted
+vasted --version
+```
+
+Upgrade:
+
+```bash
+uv tool upgrade vasted
+```
+
+### From source (development)
 
 ```bash
 git clone https://github.com/deeflect/vasted.git
@@ -43,19 +56,23 @@ Run CLI commands from the repo:
 uv run vasted --help
 ```
 
-### Install as a tool
+### Git install (latest main)
 
 ```bash
 uv tool install "git+https://github.com/deeflect/vasted.git"
 ```
 
-Upgrade later:
+## Quick Start
+
+If installed as a tool:
 
 ```bash
-uv tool upgrade vasted
+vasted setup
+vasted up
+vasted status --verbose
 ```
 
-## Quick Start
+From source checkout:
 
 ```bash
 uv run vasted setup
