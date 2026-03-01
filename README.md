@@ -9,11 +9,7 @@ Built by [deeflect.com](https://deeflect.com) · Follow on X: [x.com/deeflectcom
 
 ## Demo
 
-GIF placeholder (add after publish):
-
-```md
 ![vasted demo](docs/assets/demo.gif)
-```
 
 ## Why `vasted`
 
