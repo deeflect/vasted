@@ -1,31 +1,56 @@
-# `vasted`
+# vasted
 
-[![CI](https://github.com/borb/vasted/actions/workflows/ci.yml/badge.svg)](https://github.com/borb/vasted/actions/workflows/ci.yml)
+[![CI](https://github.com/deeflect/vasted/actions/workflows/ci.yml/badge.svg)](https://github.com/deeflect/vasted/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`vasted` launches on-demand Vast.ai GPU workers for `llama.cpp` GGUF inference and exposes a stable local OpenAI-compatible `/v1` endpoint.
+`vasted` is a CLI that launches on-demand Vast.ai GPU workers for `llama.cpp` GGUF inference and exposes a stable OpenAI-compatible `/v1` endpoint.
 
-## Why Use It
+Built by [deeflect.com](https://deeflect.com) · Follow on X: [x.com/deeflectcom](https://x.com/deeflectcom)
 
-- Stable local endpoint while worker hosts rotate.
-- Guided setup for local machine and VPS modes.
-- OpenAI-compatible proxy for editor/agent tooling.
-- Usage and cost tracking with request/token metrics.
-- Optional Telegram bot commands (`/up`, `/down`, `/status`, `/usage`).
+## Demo
+
+GIF placeholder (add after publish):
+
+```md
+![vasted demo](docs/assets/demo.gif)
+```
+
+## Why `vasted`
+
+- Stable client endpoint while worker URLs rotate.
+- Setup wizard for local machine and VPS deployments.
+- Non-interactive automation mode for agents/CI.
+- OpenAI-compatible proxy for tools that expect `/v1` APIs.
+- Session usage and cost tracking.
+- Optional Telegram bot control commands.
 
 ## Requirements
 
 - Python `3.12+`
 - [`uv`](https://docs.astral.sh/uv/)
-- Vast.ai account with API key
-- Optional: Telegram bot token
+- Vast.ai account + API key
+- Optional: Telegram bot token (`telegram` extra)
 
 ## Install
 
-Install directly from GitHub right now:
+### Use from source (recommended while iterating)
 
 ```bash
-uv tool install "git+https://github.com/borb/vasted.git"
+git clone https://github.com/deeflect/vasted.git
+cd vasted
+uv sync --extra dev
+```
+
+Run CLI commands from the repo:
+
+```bash
+uv run vasted --help
+```
+
+### Install as a tool
+
+```bash
+uv tool install "git+https://github.com/deeflect/vasted.git"
 ```
 
 Upgrade later:
@@ -34,145 +59,120 @@ Upgrade later:
 uv tool upgrade vasted
 ```
 
-For contributors/developers:
-
-```bash
-# as project tool from local checkout
-uv tool install .
-
-# development environment
-uv sync --extra dev
-```
-
-Optional Telegram support:
-
-```bash
-uv sync --extra telegram
-```
-
 ## Quick Start
 
 ```bash
 uv run vasted setup
 uv run vasted up
-uv run vasted status
+uv run vasted status --verbose
 ```
 
-After setup, point your client at:
+Client connection values after setup:
 
-- `Base URL`: `http://<proxy_host>:<proxy_port>/v1`
-- `API key`: `Bearer <setup token>`
+- Base URL: `http://<host>:<port>/v1`
+- Auth header: `Authorization: Bearer <token>`
 
-## Core Commands
+When `proxy_host` is `0.0.0.0`, use your real machine/VPS IP or domain in clients.
 
-- `vasted setup [--non-interactive] [--manual] [--client openclaw|opencode|custom]`
-- `vasted up [--model ...] [--profile ...] [--max-price ...] [--jinja|--no-jinja] [--non-interactive] [--yes]`
-- `vasted down [--force]`
-- `vasted status [--verbose]`
-- `vasted usage`
-- `vasted logs [--instance-id ...] [--tail N]`
-- `vasted serve [--watchdog] [--log-file path]`
-- `vasted token show|rotate`
-- `vasted config show`
-- `vasted profile list|add|use|remove`
-- `vasted completions <bash|zsh|fish>`
+## Automation / Unattended Mode
+
+Use non-interactive commands to avoid prompts:
+
+```bash
+uv run vasted setup --non-interactive \
+  --vast-api-key "$VASTED_API_KEY" \
+  --bearer-token "$VASTED_BEARER_TOKEN" \
+  --client openclaw \
+  --deployment-mode local_pc \
+  --model qwen3-coder-30b \
+  --quality balanced \
+  --gpu-mode auto
+
+uv run vasted up --non-interactive --yes --jinja --model qwen3-coder-30b --quality balanced --gpu-mode auto --no-serve
+uv run vasted status --verbose
+uv run vasted usage
+uv run vasted down --force
+```
+
+Environment variables accepted by `setup --non-interactive`:
+
+- `VASTED_API_KEY`
+- `VASTED_BEARER_TOKEN`
+- `VASTED_CLIENT` (`openclaw`, `opencode`, `custom`)
+- `VASTED_LLAMA_JINJA` (`true`/`false`)
+- `VASTED_MODEL`, `VASTED_QUALITY`, `VASTED_GPU_MODE`, `VASTED_GPU_PRESET`
+- `VASTED_DEPLOYMENT_MODE`, `VASTED_PROXY_HOST`, `VASTED_PROXY_PORT`, `VASTED_PUBLIC_HOST`
+
+## Client Profiles and Jinja Behavior
+
+`setup` supports client presets that define default `llama.cpp --jinja` behavior:
+
+- `--client openclaw`: jinja on by default
+- `--client opencode`: jinja off by default
+- `--client custom`: keep/manual behavior
+
+Per launch override is still available:
+
+```bash
+uv run vasted up --jinja
+uv run vasted up --no-jinja
+```
+
+## Command Reference
+
+```bash
+vasted setup [--non-interactive] [--manual] [--client openclaw|opencode|custom]
+vasted up [--model ...] [--quality ...] [--gpu-mode auto|manual] [--gpu-preset ...] [--profile ...] [--max-price ...] [--jinja|--no-jinja] [--yes] [--non-interactive] [--serve|--no-serve]
+vasted down [--force]
+vasted status [--verbose]
+vasted logs [--instance-id N] [--tail N]
+vasted usage
+vasted token show [--full]
+vasted token rotate
+vasted rotate-token
+vasted config show
+vasted profile list|add|use|remove
+vasted completions <bash|zsh|fish>
+```
 
 ## Telegram Bot (Optional)
 
-After setting `telegram_token` and `telegram_chat_id` in setup:
+Install telegram extra and run:
 
 ```bash
+uv sync --extra telegram
 uv run python bot.py
 ```
-
-## Automation / Agent Mode
-
-Use non-interactive flags to avoid prompts in CI/agents:
-
-```bash
-uv run vasted setup --non-interactive --vast-api-key "$VASTED_API_KEY"
-uv run vasted up --non-interactive --yes --model qwen3-coder-30b --quality balanced --gpu-mode auto
-```
-
-Agent-specific usage guidance is in `AGENTS.md`.
-
-## OpenClaw vs OpenCode
-
-- OpenClaw-style assistant/chat agents often require `llama.cpp --jinja`.
-- Setup can pick a client preset that controls default jinja behavior:
-  - `vasted setup --client openclaw` (jinja default on)
-  - `vasted setup --client opencode` (jinja default off)
-  - `vasted setup --client custom` (manual/default behavior)
-- `vasted` now enables jinja by default and supports per-run override:
-  - force on: `vasted up --jinja`
-  - force off: `vasted up --no-jinja`
-- The proxy normalizes strict chat-role payloads for llama-server templates:
-  - maps `developer` -> `system`
-  - maps legacy `function` -> `tool`
-  - flattens structured `content` blocks to text for compatibility
-- Persisted default can be configured in setup:
-  - `vasted setup --non-interactive --client openclaw`
-  - `vasted setup --non-interactive --client opencode`
-  - `vasted setup --non-interactive --llama-jinja`
-  - `vasted setup --non-interactive --no-llama-jinja`
-
-## PyPI (Prepared)
-
-Publishing workflow and release docs are prepped. Once the package is published, users will be able to install with:
-
-```bash
-uv tool install vasted
-```
-
-Release process documentation: `RELEASING.md`.
-
-## Model Inputs
-
-Supported model input formats:
-
-- Curated keys (`qwen3-coder-30b`, `gemma-3-12b`, ...)
-- Known Ollama aliases (`qwen3:8b`, `codestral`, ...)
-- HF GGUF ref (`org/repo:model.gguf`)
-- HF resolve URL (`https://huggingface.co/.../resolve/main/model.gguf`)
 
 ## Development
 
 ```bash
-uv sync --extra dev
 uv run ruff check .
-uv run mypy app tests
+uv run mypy app tests bot.py
 uv run pytest -q
 ```
 
-`CI` runs lint, typing, and tests on pushes and pull requests.
-
 ## Project Layout
 
-- `app/commands/*`: CLI commands
-- `app/service.py`: worker lifecycle and policy logic
+- `app/commands/*`: CLI command handlers
+- `app/service.py`: worker lifecycle + launch policy
 - `app/proxy.py`: OpenAI-compatible reverse proxy
-- `app/vast.py`: Vast API client and startup script builder
-- `app/usage.py`: request/token/cost accounting
-- `app/state.py`, `app/user_config.py`: persisted state/config
-- `bot.py`: Telegram control plane
+- `app/vast.py`: Vast API integration + startup script generation
+- `app/usage.py`: token/time/cost accounting
+- `app/user_config.py`: persistent config + keyring integration
+- `app/state.py`: runtime state persistence
+- `bot.py`: optional Telegram control plane
 
-## Security Notes
+## Security
 
-- Keep your Vast API key and bearer token private.
-- Prefer binding proxy to localhost unless remote access is required.
-- Review `SECURITY.md` for vulnerability reporting.
+- Keep Vast API keys and bearer tokens private.
+- Prefer localhost binds unless remote access is required.
+- See [SECURITY.md](./SECURITY.md) for disclosure policy.
 
 ## Contributing
 
-See `CONTRIBUTING.md` for workflow and standards. Please run lint, mypy, and tests before opening a PR.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) and run the validation commands before opening a PR.
 
 ## License
 
-MIT. See `LICENSE`.
-
-## Project Docs
-
-- `docs/spec.md`
-- `CHANGELOG.md`
-- `SECURITY.md`
-- `RELEASING.md`
+MIT — see [LICENSE](./LICENSE).

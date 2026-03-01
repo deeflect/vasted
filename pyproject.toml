@@ -32,9 +32,9 @@ telegram = ["python-telegram-bot>=21.0"]
 dev = ["pytest", "ruff", "mypy", "types-PyYAML", "pytest-asyncio", "httpx[test]"]
 
 [project.urls]
-Homepage = "https://github.com/borb/vasted"
-Repository = "https://github.com/borb/vasted"
-Issues = "https://github.com/borb/vasted/issues"
+Homepage = "https://github.com/deeflect/vasted"
+Repository = "https://github.com/deeflect/vasted"
+Issues = "https://github.com/deeflect/vasted/issues"
 
 [project.scripts]
 vasted = "app.cli:cli"

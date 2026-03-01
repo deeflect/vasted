@@ -238,11 +238,15 @@ def _pick_gpu_preset(default_preset: str) -> str:
 def _validate_api_key_loop(cfg_api_key: str, base_url: str) -> str:
     key = cfg_api_key
     while True:
-        key = Prompt.ask("Vast API key", default=key, password=True)
+        prompt = "Vast API key"
+        if key:
+            prompt = "Vast API key (already set; press Enter to keep)"
+        key = Prompt.ask(prompt, default=key, password=True, show_default=False)
         try:
             with console.status("Validating Vast API key..."):
                 user = VastAPI(key, base_url).validate_api_key()
-            console.print(f"[green]✓ Valid API key[/green] ({user.get('username') or user.get('email') or 'unknown'})")
+            identity = user.get("username") or user.get("email") or "unknown"
+            console.print(f"[green]✓ Valid API key[/green] ({identity})")
             return key
         except VastAuthError:
             console.print("[yellow]Invalid API key. Please try again.[/yellow]")
@@ -382,7 +386,9 @@ def _print_setup_completion(cfg: UserConfig) -> None:
 )
 @click.option("--llama-jinja", "llama_jinja", flag_value=True, default=None)
 @click.option("--no-llama-jinja", "llama_jinja", flag_value=False)
-@click.option("--manual", is_flag=True, default=False)
+@click.option(
+    "--manual", is_flag=True, default=False
+)
 @click.option("--non-interactive", is_flag=True, default=False)
 def setup(
     vast_api_key: str | None,

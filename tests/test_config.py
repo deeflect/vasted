@@ -9,6 +9,7 @@ from click.testing import CliRunner
 import app.persistence as persistence
 from app.cli import cli
 from app.client_config import write_or_merge_opencode_config
+from app.commands.common import truncate_secret
 from app.commands.config import render_config_summary
 from app.commands.setup import (
     _choose_custom_repo_file,
@@ -19,6 +20,7 @@ from app.commands.setup import (
 from app.user_config import UserConfig, load_config, save_config
 
 setup_helpers = importlib.import_module("app.commands.setup")
+token_module = importlib.import_module("app.commands.token")
 
 
 def test_config_roundtrip(tmp_path: Path) -> None:
@@ -89,6 +91,36 @@ def test_setup_reuses_existing_bearer_token() -> None:
     assert cfg.bearer_token_plain == "stable-token"
 
 
+def test_validate_api_key_loop_hides_default_value(monkeypatch) -> None:
+    prompt_kwargs: dict[str, object] = {}
+    prints: list[str] = []
+
+    class FakePrompt:
+        @staticmethod
+        def ask(_prompt: str, **kwargs: object) -> str:
+            prompt_kwargs.update(kwargs)
+            return "existing-secret"
+
+    class FakeVastAPI:
+        def __init__(self, api_key: str, _base_url: str) -> None:
+            assert api_key == "existing-secret"
+
+        def validate_api_key(self) -> dict[str, str]:
+            return {"username": "demo"}
+
+    monkeypatch.setattr(setup_helpers, "Prompt", FakePrompt)
+    monkeypatch.setattr(setup_helpers, "VastAPI", FakeVastAPI)
+    monkeypatch.setattr(setup_helpers.console, "print", lambda message: prints.append(str(message)))
+
+    key = setup_helpers._validate_api_key_loop("existing-secret", "https://api.vast.ai/api/v0")
+
+    assert key == "existing-secret"
+    assert prompt_kwargs["password"] is True
+    assert prompt_kwargs["default"] == "existing-secret"
+    assert prompt_kwargs["show_default"] is False
+    assert any("demo" in line for line in prints)
+
+
 def test_merge_opencode_config_preserves_unrelated_providers(tmp_path: Path) -> None:
     path = tmp_path / "opencode.json"
     path.write_text('{"provider":{"other":{"name":"Other"}}}', encoding="utf-8")
@@ -137,6 +169,39 @@ def test_cli_help_lists_token_and_config_commands() -> None:
     assert result.exit_code == 0
     assert "token" in result.output
     assert "config" in result.output
+
+
+def test_truncate_secret_masks_middle() -> None:
+    assert truncate_secret("abcdefghijklmnopqrstuvwxyz123456") == "abcdef...3456"
+
+
+def test_truncate_secret_masks_short_values_fully() -> None:
+    assert truncate_secret("short") == "*****"
+
+
+def test_token_show_masks_secret_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(
+        token_module,
+        "load_config",
+        lambda: UserConfig(bearer_token_plain="abcdefghijklmnopqrstuvwxyz123456"),
+    )
+    runner = CliRunner()
+    result = runner.invoke(token_module.token, ["show"])
+    assert result.exit_code == 0
+    assert "abcdef...3456" in result.output
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in result.output
+
+
+def test_token_show_full_reveals_secret(monkeypatch) -> None:
+    monkeypatch.setattr(
+        token_module,
+        "load_config",
+        lambda: UserConfig(bearer_token_plain="abcdefghijklmnopqrstuvwxyz123456"),
+    )
+    runner = CliRunner()
+    result = runner.invoke(token_module.token, ["show", "--full"])
+    assert result.exit_code == 0
+    assert "abcdefghijklmnopqrstuvwxyz123456" in result.output
 
 
 def test_choose_custom_repo_file_defaults_to_recommended(monkeypatch) -> None:

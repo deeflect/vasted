@@ -4,7 +4,7 @@ import secrets
 
 import click
 
-from app.commands.common import console, print_client_config
+from app.commands.common import console, print_client_config, truncate_secret
 from app.commands.setup import display_client_base_url
 from app.user_config import UserConfig, load_config, save_config
 
@@ -22,9 +22,10 @@ def token() -> None:
 
 
 @token.command("show")
-def show_token() -> None:
+@click.option("--full", "show_full", is_flag=True, help="Show the full bearer token.")
+def show_token(show_full: bool) -> None:
     cfg = load_config()
-    click.echo(cfg.bearer_token_plain)
+    click.echo(cfg.bearer_token_plain if show_full else truncate_secret(cfg.bearer_token_plain))
 
 
 @token.command("rotate")
