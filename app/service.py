@@ -35,6 +35,7 @@ class LaunchPlan:
     model_size_gb: float
     required_vram_gb: float
     rationale: str
+    enable_jinja: bool = True
 
 
 @dataclass(slots=True)
@@ -191,6 +192,7 @@ def prepare_launch(
     quality_override: str | None = None,
     gpu_mode_override: str | None = None,
     gpu_preset_override: str | None = None,
+    jinja_override: bool | None = None,
 ) -> LaunchPlan:
     cfg = require_config()
     model_spec: ModelSpec = resolve_model(model_override or cfg.model)
@@ -210,6 +212,7 @@ def prepare_launch(
                 f"({sizing.target_context // 1024}k). Minimum required preset is {sizing.minimum_gpu_preset}."
             )
         selected_gpu_preset = requested_gpu_preset
+    enable_jinja = cfg.llama_server_jinja if jinja_override is None else jinja_override
     return LaunchPlan(
         model_spec=model_spec,
         quality_profile=quality_profile,
@@ -220,6 +223,7 @@ def prepare_launch(
         model_size_gb=sizing.model_size_gb,
         required_vram_gb=sizing.required_vram_gb,
         rationale=sizing.rationale,
+        enable_jinja=enable_jinja,
     )
 
 
@@ -243,6 +247,7 @@ def _load_worker_once(
         gpu_preset,
         image=cfg.llama_cpp_image,
         api_token=cfg.bearer_token_plain,
+        enable_jinja=plan.enable_jinja,
     )
     now = time.time()
     save_state(

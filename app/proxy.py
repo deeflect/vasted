@@ -13,7 +13,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -33,6 +33,10 @@ from app.vast import VastAPI, probe_worker_ready_async
 console = Console()
 _REQUEST_LOG_PATH: Path | None = None
 _WATCHDOG_ENABLED = False
+_ROLE_ALIASES: dict[str, str] = {
+    "developer": "system",
+    "function": "tool",
+}
 
 
 class ConfigCache:
@@ -88,6 +92,87 @@ def _valid_worker_url(url: str) -> bool:
     if not p.hostname:
         return False
     return bool(re.match(r"^[A-Za-z0-9.-]+$", p.hostname))
+
+
+def _content_to_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                if item.strip():
+                    parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            for key in ("text", "input_text", "content", "output_text"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    parts.append(value)
+                    break
+        if parts:
+            return "\n".join(parts)
+    try:
+        return json.dumps(content, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return str(content)
+
+
+def _normalize_chat_request_payload(body: bytes) -> bytes:
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return body
+    if not isinstance(payload, dict):
+        return body
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return body
+
+    changed = False
+    system_parts: list[str] = []
+    normalized: list[dict[str, Any]] = []
+
+    for message in messages:
+        if not isinstance(message, dict):
+            changed = True
+            normalized.append({"role": "user", "content": _content_to_text(message)})
+            continue
+
+        normalized_message = dict(message)
+        role_raw = normalized_message.get("role")
+        role = role_raw.strip().lower() if isinstance(role_raw, str) else ""
+        if not role:
+            role = "user"
+            changed = True
+        mapped_role = _ROLE_ALIASES.get(role, role)
+        if mapped_role != role:
+            changed = True
+        normalized_message["role"] = mapped_role
+
+        original_content = normalized_message.get("content")
+        normalized_content = _content_to_text(original_content)
+        if normalized_content != original_content:
+            changed = True
+        normalized_message["content"] = normalized_content
+
+        if mapped_role == "system":
+            if normalized_content.strip():
+                system_parts.append(normalized_content.strip())
+            changed = True
+            continue
+        normalized.append(normalized_message)
+
+    if system_parts:
+        normalized.insert(0, {"role": "system", "content": "\n\n".join(system_parts)})
+
+    if not changed:
+        return body
+    payload["messages"] = normalized
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 async def health(_: Request) -> JSONResponse:
@@ -211,6 +296,8 @@ async def forward(request: Request) -> Response:
     target = f"{state.worker_url.rstrip('/')}/v1{suffix}"
 
     body = await request.body()
+    if suffix == "/chat/completions":
+        body = _normalize_chat_request_payload(body)
     # Replace proxy bearer with worker auth token (OPEN_BUTTON_TOKEN = bearer_token).
     headers = {k: v for k, v in request.headers.items() if k.lower() not in {"host", "content-length", "authorization"}}
     headers["Authorization"] = f"Bearer {cfg.bearer_token_plain}"

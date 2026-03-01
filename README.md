@@ -65,8 +65,8 @@ After setup, point your client at:
 
 ## Core Commands
 
-- `vasted setup [--non-interactive] [--manual]`
-- `vasted up [--model ...] [--profile ...] [--max-price ...] [--non-interactive] [--yes]`
+- `vasted setup [--non-interactive] [--manual] [--client openclaw|opencode|custom]`
+- `vasted up [--model ...] [--profile ...] [--max-price ...] [--jinja|--no-jinja] [--non-interactive] [--yes]`
 - `vasted down [--force]`
 - `vasted status [--verbose]`
 - `vasted usage`
@@ -95,6 +95,26 @@ uv run vasted up --non-interactive --yes --model qwen3-coder-30b --quality balan
 ```
 
 Agent-specific usage guidance is in `AGENTS.md`.
+
+## OpenClaw vs OpenCode
+
+- OpenClaw-style assistant/chat agents often require `llama.cpp --jinja`.
+- Setup can pick a client preset that controls default jinja behavior:
+  - `vasted setup --client openclaw` (jinja default on)
+  - `vasted setup --client opencode` (jinja default off)
+  - `vasted setup --client custom` (manual/default behavior)
+- `vasted` now enables jinja by default and supports per-run override:
+  - force on: `vasted up --jinja`
+  - force off: `vasted up --no-jinja`
+- The proxy normalizes strict chat-role payloads for llama-server templates:
+  - maps `developer` -> `system`
+  - maps legacy `function` -> `tool`
+  - flattens structured `content` blocks to text for compatibility
+- Persisted default can be configured in setup:
+  - `vasted setup --non-interactive --client openclaw`
+  - `vasted setup --non-interactive --client opencode`
+  - `vasted setup --non-interactive --llama-jinja`
+  - `vasted setup --non-interactive --no-llama-jinja`
 
 ## PyPI (Prepared)
 

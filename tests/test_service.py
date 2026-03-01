@@ -103,6 +103,32 @@ def test_looks_like_fit_failure_matches_memory_errors() -> None:
     assert not _looks_like_fit_failure("provided PTX was compiled with an unsupported toolchain")
 
 
+def test_prepare_launch_uses_configured_jinja_and_allows_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import service
+
+    monkeypatch.setattr(
+        service,
+        "require_config",
+        lambda: UserConfig(
+            vast_api_key_plain="vast",
+            bearer_token_plain="token",
+            model="qwen3-coder-30b",
+            quality_profile="balanced",
+            gpu_mode="auto",
+            gpu_preset="1xa100-80gb",
+            llama_server_jinja=False,
+        ),
+    )
+
+    default_plan = service.prepare_launch()
+    forced_on_plan = service.prepare_launch(jinja_override=True)
+    forced_off_plan = service.prepare_launch(jinja_override=False)
+
+    assert not default_plan.enable_jinja
+    assert forced_on_plan.enable_jinja
+    assert not forced_off_plan.enable_jinja
+
+
 def test_start_worker_escalates_after_fit_probe_failure(monkeypatch) -> None:
     from app import service
 

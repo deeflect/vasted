@@ -2,6 +2,8 @@ import importlib
 import json
 from pathlib import Path
 
+import click
+import pytest
 from click.testing import CliRunner
 
 import app.persistence as persistence
@@ -125,6 +127,8 @@ def test_config_show_reports_deployment_mode_and_base_url(capsys) -> None:
     out = capsys.readouterr().out
     assert "local_pc" in out
     assert "http://127.0.0.1:4318/v1" in out
+    assert "Client profile: openclaw" in out
+    assert "Llama jinja: enabled" in out
 
 
 def test_cli_help_lists_token_and_config_commands() -> None:
@@ -152,3 +156,60 @@ def test_choose_custom_repo_file_defaults_to_recommended(monkeypatch) -> None:
         ],
     )
     assert filename == "model-Q4_K_M.gguf"
+
+
+def test_env_bool_parses_common_values(monkeypatch) -> None:
+    monkeypatch.setenv("VASTED_LLAMA_JINJA", "true")
+    assert setup_helpers._env_bool("VASTED_LLAMA_JINJA", default=False) is True
+    monkeypatch.setenv("VASTED_LLAMA_JINJA", "0")
+    assert setup_helpers._env_bool("VASTED_LLAMA_JINJA", default=True) is False
+
+
+def test_normalize_client_profile_accepts_known_values() -> None:
+    assert setup_helpers._normalize_client_profile("openclaw") == "openclaw"
+    assert setup_helpers._normalize_client_profile("OpenCode") == "opencode"
+    assert setup_helpers._normalize_client_profile(" custom ") == "custom"
+
+
+def test_normalize_client_profile_rejects_unknown_value() -> None:
+    with pytest.raises(click.ClickException):
+        setup_helpers._normalize_client_profile("unknown")
+
+
+def test_resolve_llama_jinja_prefers_explicit_then_env_then_client_default() -> None:
+    assert (
+        setup_helpers._resolve_llama_jinja(
+            explicit=True,
+            env_raw="false",
+            client_profile="opencode",
+            fallback=False,
+        )
+        is True
+    )
+    assert (
+        setup_helpers._resolve_llama_jinja(
+            explicit=None,
+            env_raw="true",
+            client_profile="opencode",
+            fallback=False,
+        )
+        is True
+    )
+    assert (
+        setup_helpers._resolve_llama_jinja(
+            explicit=None,
+            env_raw=None,
+            client_profile="opencode",
+            fallback=True,
+        )
+        is False
+    )
+    assert (
+        setup_helpers._resolve_llama_jinja(
+            explicit=None,
+            env_raw=None,
+            client_profile="custom",
+            fallback=True,
+        )
+        is True
+    )

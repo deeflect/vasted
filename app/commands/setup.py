@@ -21,6 +21,16 @@ DEPLOYMENT_MODE_ROWS: list[tuple[str, str, str]] = [
     ("vps_shared", "VPS: server + my device", "Run on a VPS and use it both there and from your device"),
     ("manual", "Manual / custom", "Change host, port, public host, and optional extras yourself"),
 ]
+CLIENT_PROFILE_ROWS: list[tuple[str, str, str]] = [
+    ("openclaw", "OpenClaw / chat-agent", "Default `--jinja` enabled"),
+    ("opencode", "OpenCode / coding CLI", "Default `--jinja` disabled"),
+    ("custom", "Custom", "Do not force a jinja default"),
+]
+CLIENT_PROFILE_JINJA_DEFAULTS: dict[str, bool | None] = {
+    "openclaw": True,
+    "opencode": False,
+    "custom": None,
+}
 
 
 def _choose(title: str, rows: list[list[str]], default_index: int = 1) -> int:
@@ -95,6 +105,23 @@ def _pick_deployment_mode(default_mode: str) -> str:
     keys = [key for key, _, _ in DEPLOYMENT_MODE_ROWS]
     default_index = keys.index(default_mode) + 1 if default_mode in keys else 1
     idx = _choose("Choose deployment mode", rows, default_index=default_index)
+    return keys[idx]
+
+
+def _normalize_client_profile(raw: str | None, default: str = "openclaw") -> str:
+    if not raw:
+        return default
+    value = raw.strip().lower()
+    if value not in CLIENT_PROFILE_JINJA_DEFAULTS:
+        raise click.ClickException(f"Unknown client profile: {raw}")
+    return value
+
+
+def _pick_client_profile(default_profile: str) -> str:
+    rows = [[str(i), label, detail] for i, (_, label, detail) in enumerate(CLIENT_PROFILE_ROWS, start=1)]
+    keys = [key for key, _, _ in CLIENT_PROFILE_ROWS]
+    default_index = keys.index(default_profile) + 1 if default_profile in keys else 1
+    idx = _choose("Choose client profile", rows, default_index=default_index)
     return keys[idx]
 
 
@@ -228,6 +255,48 @@ def _finalize_gpu_defaults(model_value: str, quality_value: str, fallback_preset
         return fallback_preset
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _env_raw(name: str) -> str | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    trimmed = raw.strip()
+    return trimmed if trimmed else None
+
+
+def _resolve_llama_jinja(
+    *,
+    explicit: bool | None,
+    env_raw: str | None,
+    client_profile: str,
+    fallback: bool,
+) -> bool:
+    if explicit is not None:
+        return explicit
+    if env_raw is not None:
+        value = env_raw.lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+        return fallback
+    profile_default = CLIENT_PROFILE_JINJA_DEFAULTS.get(client_profile)
+    if profile_default is None:
+        return fallback
+    return profile_default
+
+
 def _manual_public_host(current: str) -> str:
     while True:
         host = Prompt.ask("Public host or IP for clients (leave blank to skip)", default=current or "")
@@ -278,6 +347,8 @@ def _print_setup_completion(cfg: UserConfig) -> None:
     console.print("[green]Setup complete[/green]")
     if cfg.gpu_mode == "auto":
         console.print(f"Auto GPU floor: [cyan]{GPU_PRESETS[cfg.gpu_preset].name}[/cyan]")
+    console.print(f"Client profile: [cyan]{cfg.client_profile}[/cyan]")
+    console.print(f"llama.cpp jinja mode: [cyan]{'enabled' if cfg.llama_server_jinja else 'disabled'}[/cyan]")
 
     print_client_config(display_client_base_url(cfg), cfg.bearer_token_plain, cfg.model)
 
@@ -302,6 +373,15 @@ def _print_setup_completion(cfg: UserConfig) -> None:
 @click.option("--proxy-host", default=None)
 @click.option("--proxy-port", type=int, default=None)
 @click.option("--public-host", default=None)
+@click.option(
+    "--client",
+    "client_profile",
+    type=click.Choice([row[0] for row in CLIENT_PROFILE_ROWS], case_sensitive=False),
+    default=None,
+    help="Client preset (openclaw/opencode/custom) that sets default jinja behavior.",
+)
+@click.option("--llama-jinja", "llama_jinja", flag_value=True, default=None)
+@click.option("--no-llama-jinja", "llama_jinja", flag_value=False)
 @click.option("--manual", is_flag=True, default=False)
 @click.option("--non-interactive", is_flag=True, default=False)
 def setup(
@@ -315,6 +395,8 @@ def setup(
     proxy_host: str | None,
     proxy_port: int | None,
     public_host: str | None,
+    client_profile: str | None,
+    llama_jinja: bool | None,
     manual: bool,
     non_interactive: bool,
 ) -> None:
@@ -343,6 +425,16 @@ def setup(
         cfg.proxy_host = proxy_host or os.getenv("VASTED_PROXY_HOST", cfg.proxy_host) or cfg.proxy_host
         cfg.proxy_port = proxy_port or int(os.getenv("VASTED_PROXY_PORT", str(cfg.proxy_port)))
         cfg.public_host = public_host or os.getenv("VASTED_PUBLIC_HOST", cfg.public_host) or cfg.public_host
+        cfg.client_profile = _normalize_client_profile(
+            client_profile or _env_raw("VASTED_CLIENT") or cfg.client_profile,
+            default=cfg.client_profile,
+        )
+        cfg.llama_server_jinja = _resolve_llama_jinja(
+            explicit=llama_jinja,
+            env_raw=_env_raw("VASTED_LLAMA_JINJA"),
+            client_profile=cfg.client_profile,
+            fallback=cfg.llama_server_jinja,
+        )
         if not (1024 <= int(cfg.proxy_port) <= 65535):
             raise click.ClickException("Port must be 1024-65535")
         if cfg.gpu_mode not in {"auto", "manual"}:
@@ -366,6 +458,24 @@ def setup(
         cfg.gpu_preset = _pick_gpu_preset(cfg.gpu_preset)
     else:
         cfg.gpu_preset = _finalize_gpu_defaults(cfg.model, cfg.quality_profile, cfg.gpu_preset)
+    cfg.client_profile = (
+        _normalize_client_profile(client_profile, default=cfg.client_profile)
+        if client_profile is not None
+        else _pick_client_profile(cfg.client_profile)
+    )
+    if llama_jinja is not None:
+        cfg.llama_server_jinja = llama_jinja
+    elif cfg.client_profile == "custom":
+        cfg.llama_server_jinja = (
+            Prompt.ask(
+                "Enable llama.cpp --jinja chat template mode?",
+                choices=["yes", "no"],
+                default="yes" if cfg.llama_server_jinja else "no",
+            )
+            == "yes"
+        )
+    else:
+        cfg.llama_server_jinja = bool(CLIENT_PROFILE_JINJA_DEFAULTS[cfg.client_profile])
 
     if mode == "manual":
         cfg.deployment_mode = "manual"

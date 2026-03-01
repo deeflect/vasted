@@ -93,6 +93,8 @@ def _enforce_budget_confirmation(
 @click.option("--quality", "quality_override", default=None)
 @click.option("--gpu-mode", "gpu_mode_override", default=None)
 @click.option("--gpu-preset", "gpu_preset_override", default=None)
+@click.option("--jinja", "jinja_override", flag_value=True, default=None, help="Enable llama.cpp --jinja.")
+@click.option("--no-jinja", "jinja_override", flag_value=False, help="Disable llama.cpp --jinja.")
 @click.option("--profile", "profile_name", default=None)
 @click.option("--max-price", type=float, default=None)
 @click.option("--force", is_flag=True, default=False)
@@ -109,6 +111,7 @@ def up(
     quality_override: str | None,
     gpu_mode_override: str | None,
     gpu_preset_override: str | None,
+    jinja_override: bool | None,
     profile_name: str | None,
     max_price: float | None,
     force: bool,
@@ -132,6 +135,7 @@ def up(
             quality_override=quality_override,
             gpu_mode_override=gpu_mode_override,
             gpu_preset_override=gpu_preset_override,
+            jinja_override=jinja_override,
         )
 
         inventory = check_inventory(plan, limit=10)
@@ -144,6 +148,7 @@ def up(
         summary.add_row("GPU mode", plan.gpu_mode)
         summary.add_row("Minimum safe GPU", GPU_PRESETS[plan.selected_gpu_preset].name)
         summary.add_row("Sizing", f"{plan.model_size_gb:.1f} GB model, ~{plan.required_vram_gb:.1f} GB VRAM")
+        summary.add_row("Chat template", "jinja enabled" if plan.enable_jinja else "jinja disabled")
         console.print(Panel(summary, title="Launch Plan", border_style="cyan"))
         _print_inventory_summary(inventory, plan.selected_gpu_preset)
 

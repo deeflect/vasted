@@ -190,11 +190,19 @@ def test_build_onstart_prefers_staged_download_and_local_model() -> None:
     assert "pick_cache_parent()" in script
     assert "for candidate in /workspace /data /mnt /var/lib /tmp /root /;" in script
     assert "MIN_FREE_GB=" in script
+    assert "--jinja" in script
     assert cached_path in script
     assert model_url in script
     assert local_model in script
     assert remote_repo in script
 
+    api.client.close()
+
+
+def test_build_onstart_can_disable_jinja() -> None:
+    api = VastAPI("test")
+    script = api._build_onstart(resolve_model("qwen3-coder-30b"), "balanced", api_token="token", enable_jinja=False)
+    assert "--jinja" not in script
     api.client.close()
 
 
@@ -223,6 +231,37 @@ def test_create_instance_uses_args_runtype(monkeypatch: pytest.MonkeyPatch) -> N
     assert payload["onstart"] == "/bin/bash"
     assert payload["args"][0] == "-lc"
     assert "exec /app/llama-server" in payload["args"][1]
+    assert "--jinja" in payload["args"][1]
     assert payload["env"] == {"-p 8000:8000": "1"}
+
+    api.client.close()
+
+
+def test_create_instance_can_disable_jinja(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = VastAPI("test")
+    captured: dict[str, object] = {}
+
+    class _Resp:
+        def json(self):
+            return {"new_contract": 123}
+
+    def fake_request(method: str, path: str, **kwargs):
+        captured["json"] = kwargs.get("json")
+        return _Resp()
+
+    monkeypatch.setattr(api, "_request", fake_request)
+
+    api.create_instance(
+        99,
+        resolve_model("qwen3-coder-30b"),
+        "balanced",
+        "1xa100-80gb",
+        api_token="t",
+        enable_jinja=False,
+    )
+
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    assert "--jinja" not in payload["args"][1]
 
     api.client.close()

@@ -18,10 +18,12 @@ def format_config_summary(cfg: UserConfig) -> str:
     lines.extend(
         [
             f"Base URL: {display_client_base_url(cfg)}",
+            f"Client profile: {cfg.client_profile}",
             f"Model: {cfg.model}",
             f"Quality: {cfg.quality_profile}",
             f"GPU mode: {cfg.gpu_mode}",
             f"GPU preset: {cfg.gpu_preset}",
+            f"Llama jinja: {'enabled' if cfg.llama_server_jinja else 'disabled'}",
         ]
     )
     return "\n".join(lines)

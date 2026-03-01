@@ -58,6 +58,8 @@ class UserConfig:
     telegram_chat_id: str | None = None
     vast_base_url: str = DEFAULT_VAST_BASE_URL
     llama_cpp_image: str = DEFAULT_LLAMA_CPP_IMAGE
+    llama_server_jinja: bool = True
+    client_profile: str = "openclaw"
 
     def __post_init__(self) -> None:
         if self.cors_origins is None and self.cors_allowed_origins is not None:

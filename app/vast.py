@@ -466,16 +466,18 @@ class VastAPI:
         port: int,
         cached_path: str,
         api_key_flag: str,
+        enable_jinja: bool = True,
     ) -> tuple[str, str]:
+        jinja_flag = " --jinja" if enable_jinja else ""
         launch_local = (
             f"exec /app/llama-server --host 0.0.0.0 --port {port}"
             f" -m {cached_path}"
-            f" -c {ctx} -np 1 -cb --flash-attn on -ngl -1{api_key_flag}\n"
+            f" -c {ctx} -np 1 -cb --flash-attn on{jinja_flag} -ngl -1{api_key_flag}\n"
         )
         launch_remote = (
             f"exec /app/llama-server --host 0.0.0.0 --port {port}"
             f" --hf-repo {_sh_quote(model_spec.hf_repo)} --hf-file {_sh_quote(model_spec.filename)}"
-            f" -c {ctx} -np 1 -cb --flash-attn on -ngl -1{api_key_flag}\n"
+            f" -c {ctx} -np 1 -cb --flash-attn on{jinja_flag} -ngl -1{api_key_flag}\n"
         )
         return launch_local, launch_remote
 
@@ -689,7 +691,13 @@ class VastAPI:
             "fi\n"
         )
 
-    def _build_onstart(self, model_spec: ModelSpec, quality_profile: str, api_token: str | None = None) -> str:
+    def _build_onstart(
+        self,
+        model_spec: ModelSpec,
+        quality_profile: str,
+        api_token: str | None = None,
+        enable_jinja: bool = True,
+    ) -> str:
         """Build onstart script. Binary is at /app/llama-server in the official image."""
         ctx = QUALITY_PROFILES[quality_profile].context_length
         port = DEFAULT_LLAMA_CPP_PORT
@@ -707,6 +715,7 @@ class VastAPI:
             port=port,
             cached_path=cached_path,
             api_key_flag=api_key_flag,
+            enable_jinja=enable_jinja,
         )
         return self._build_onstart_bootstrap(
             model_spec=model_spec,
@@ -723,8 +732,14 @@ class VastAPI:
         model_spec: ModelSpec,
         quality_profile: str,
         api_token: str | None = None,
+        enable_jinja: bool = True,
     ) -> str:
-        script = self._build_onstart(model_spec, quality_profile, api_token=api_token)
+        script = self._build_onstart(
+            model_spec,
+            quality_profile,
+            api_token=api_token,
+            enable_jinja=enable_jinja,
+        )
         lines = script.splitlines()
         if lines and lines[0].startswith("#!"):
             lines = lines[1:]
@@ -738,9 +753,15 @@ class VastAPI:
         gpu_preset: str,
         image: str = DEFAULT_LLAMA_CPP_IMAGE,
         api_token: str | None = None,
+        enable_jinja: bool = True,
     ) -> int:
         _ = GPU_PRESETS[gpu_preset]
-        entrypoint_script = self._build_entrypoint_script(model_spec, quality_profile, api_token=api_token)
+        entrypoint_script = self._build_entrypoint_script(
+            model_spec,
+            quality_profile,
+            api_token=api_token,
+            enable_jinja=enable_jinja,
+        )
         port = DEFAULT_LLAMA_CPP_PORT
         payload: dict[str, Any] = {
             "client_id": "me",

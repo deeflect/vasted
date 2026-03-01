@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -95,3 +97,35 @@ async def test_proxy_preflight_uses_configured_cors(monkeypatch) -> None:
     assert r.status_code == 204
     assert r.headers["access-control-allow-origin"] == "https://client.example"
     assert "authorization" in r.headers["access-control-allow-headers"]
+
+
+def test_normalize_chat_payload_merges_system_and_developer_messages() -> None:
+    from app.proxy import _normalize_chat_request_payload
+
+    payload = {
+        "model": "qwen3-30b",
+        "messages": [
+            {"role": "system", "content": "global rules"},
+            {"role": "developer", "content": "tool protocol"},
+            {"role": "user", "content": [{"type": "input_text", "text": "hello"}]},
+        ],
+    }
+    out = _normalize_chat_request_payload(json.dumps(payload).encode("utf-8"))
+    decoded = json.loads(out.decode("utf-8"))
+    assert decoded["messages"][0] == {"role": "system", "content": "global rules\n\ntool protocol"}
+    assert decoded["messages"][1] == {"role": "user", "content": "hello"}
+
+
+def test_normalize_chat_payload_maps_legacy_function_role() -> None:
+    from app.proxy import _normalize_chat_request_payload
+
+    payload = {
+        "messages": [
+            {"role": "user", "content": "call tool"},
+            {"role": "function", "name": "calc", "content": {"ok": True}},
+        ]
+    }
+    out = _normalize_chat_request_payload(json.dumps(payload).encode("utf-8"))
+    decoded = json.loads(out.decode("utf-8"))
+    assert decoded["messages"][1]["role"] == "tool"
+    assert decoded["messages"][1]["content"] == "{\"ok\":true}"
