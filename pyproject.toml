@@ -2,7 +2,21 @@
 name = "vasted"
 version = "0.1.0"
 description = "Personal GPU launcher for on-demand LLM inference on Vast.ai"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "vasted contributors" }]
 requires-python = ">=3.12"
+keywords = ["llm", "inference", "vast.ai", "llama.cpp", "proxy", "cli"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Distributed Computing",
+]
 dependencies = [
   "rich>=13.7.1",
   "pyyaml>=6.0.1",
@@ -20,6 +34,7 @@ dev = ["pytest", "ruff", "mypy", "types-PyYAML", "pytest-asyncio", "httpx[test]"
 [project.urls]
 Homepage = "https://github.com/borb/vasted"
 Repository = "https://github.com/borb/vasted"
+Issues = "https://github.com/borb/vasted/issues"
 
 [project.scripts]
 vasted = "app.cli:cli"

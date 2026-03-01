@@ -45,6 +45,7 @@ def test_summarize_usage_splits_active_cost_by_timings(monkeypatch: pytest.Monke
     assert summary.input_cost == pytest.approx(0.009)
     assert summary.output_cost == pytest.approx(0.001)
     assert summary.overhead_cost == pytest.approx(3.59)
+    assert summary.avg_output_tokens_per_second == pytest.approx(100.0)
     assert summary.input_dollars_per_million_tokens == pytest.approx(9.0)
     assert summary.output_dollars_per_million_tokens == pytest.approx(10.0)
 

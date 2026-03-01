@@ -60,6 +60,30 @@ def test_get_instance_logs_fetches_result_url(monkeypatch: pytest.MonkeyPatch) -
     api.client.close()
 
 
+def test_get_billing_parses_nested_cost_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = VastAPI("test")
+    monkeypatch.setattr(api, "get_instance_status", lambda instance_id: {"billing": {"total_charged": "1.2345"}})
+
+    billing = api.get_billing(123, estimated_cost=2.5)
+
+    assert billing.estimated_cost == pytest.approx(2.5)
+    assert billing.billed_cost == pytest.approx(1.2345)
+    api.client.close()
+
+
+def test_get_account_balance_parses_nested_balance(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = VastAPI("test")
+
+    class _Resp:
+        def json(self):
+            return {"data": {"account": {"balance": "42.25"}}}
+
+    monkeypatch.setattr(api, "_request", lambda method, path, **kwargs: _Resp())
+
+    assert api.get_account_balance() == pytest.approx(42.25)
+    api.client.close()
+
+
 def test_probe_worker_ready_sync_checks_multiple_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 

@@ -53,13 +53,27 @@ async def down_cmd(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         r = await asyncio.to_thread(stop_worker)
         u = r.usage
         billed = f"${r.billing.billed_cost:.4f}" if r.billing.billed_cost is not None else "unavailable"
+        if not r.had_active_instance:
+            await update.message.reply_text(
+                "🟡 No active worker\n"
+                f"• Requests: {u.requests:,}\n"
+                f"• Input tokens: {u.input_tokens:,}\n"
+                f"• Output tokens: {u.output_tokens:,}\n"
+                f"• Estimated: ${r.billing.estimated_cost:.4f}\n"
+                f"• Billed: {billed}"
+            )
+            return
+        status_line = (
+            "• Remote status: stopped" if r.remote_destroyed else "• Remote status: not confirmed (force mode)"
+        )
         await update.message.reply_text(
             "🛑 Worker stopped\n"
             f"• Requests: {u.requests:,}\n"
             f"• Input tokens: {u.input_tokens:,}\n"
             f"• Output tokens: {u.output_tokens:,}\n"
             f"• Estimated: ${r.billing.estimated_cost:.4f}\n"
-            f"• Billed: {billed}"
+            f"• Billed: {billed}\n"
+            f"{status_line}"
         )
     except Exception as exc:
         await update.message.reply_text(f"❌ Failed to stop worker: {exc}")
@@ -96,6 +110,7 @@ async def usage_cmd(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         f"• Requests: {u.requests:,}\n"
         f"• Input tokens: {u.input_tokens:,}\n"
         f"• Output tokens: {u.output_tokens:,}\n"
+        f"• Avg output tok/s: {u.avg_output_tokens_per_second:.2f}\n"
         f"• Cost: ${u.total_cost:.4f}\n"
         f"• $/1M tokens: ${u.blended_dollars_per_million_tokens:.2f}"
     )

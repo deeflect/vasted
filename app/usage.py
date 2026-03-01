@@ -71,6 +71,7 @@ class UsageSummary:
     output_tokens: int
     prompt_ms_total: float
     predicted_ms_total: float
+    avg_output_tokens_per_second: float
     duration_seconds: float
     total_cost: float
     input_cost: float
@@ -133,6 +134,8 @@ def summarize_usage() -> UsageSummary:
         output_cost = attributable_cost * (state.predicted_ms_total / active_ms)
     overhead_cost = max(0.0, total_cost - attributable_cost)
     total_tokens = state.input_tokens + state.output_tokens
+    decode_seconds = state.predicted_ms_total / 1000.0
+    avg_output_tokens_per_second = (state.output_tokens / decode_seconds) if decode_seconds > 0 else 0.0
     blended_per_million = (total_cost / total_tokens * 1_000_000) if total_tokens else 0.0
     input_per_million = (input_cost / state.input_tokens * 1_000_000) if state.input_tokens else 0.0
     output_per_million = (output_cost / state.output_tokens * 1_000_000) if state.output_tokens else 0.0
@@ -142,6 +145,7 @@ def summarize_usage() -> UsageSummary:
         output_tokens=state.output_tokens,
         prompt_ms_total=state.prompt_ms_total,
         predicted_ms_total=state.predicted_ms_total,
+        avg_output_tokens_per_second=avg_output_tokens_per_second,
         duration_seconds=dur,
         total_cost=total_cost,
         input_cost=input_cost,

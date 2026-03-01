@@ -41,6 +41,8 @@ class LaunchPlan:
 class DownResult:
     usage: UsageSummary
     billing: BillingInfo
+    had_active_instance: bool
+    remote_destroyed: bool
 
 
 @dataclass(slots=True)
@@ -150,6 +152,12 @@ def _fit_failure_markers() -> tuple[str, ...]:
 def _looks_like_fit_failure(*parts: str) -> bool:
     haystack = "\n".join(part for part in parts if part).lower()
     return any(marker in haystack for marker in _fit_failure_markers())
+
+
+def _is_instance_already_gone_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = ("404", "not found", "no such", "does not exist", "missing contract")
+    return any(marker in message for marker in markers)
 
 
 def _should_probe_fit(plan: LaunchPlan, gpu_preset: str) -> bool:
@@ -374,22 +382,73 @@ def start_worker(
 
 
 def stop_worker(force: bool = False) -> DownResult:
-    cfg = require_config()
     state = load_state()
+    had_active_instance = state.instance_id is not None
     usage = summarize_usage()
     billing = BillingInfo(estimated_cost=usage.total_cost, billed_cost=None)
+    if not state.instance_id:
+        clear_state()
+        return DownResult(usage=usage, billing=billing, had_active_instance=False, remote_destroyed=False)
+
+    try:
+        cfg = require_config()
+    except RuntimeError:
+        if force:
+            clear_state()
+            return DownResult(usage=usage, billing=billing, had_active_instance=True, remote_destroyed=False)
+        raise
+
+    remote_destroyed = False
     if state.instance_id:
         api = _api(cfg)
-        billing = api.get_billing(state.instance_id, usage.total_cost)
-        if force:
+        try:
+            balance_before: float | None = None
+            balance_after: float | None = None
             try:
-                api.destroy_instance(state.instance_id)
+                balance_before = api.get_account_balance()
             except Exception:
                 pass
-        else:
-            api.destroy_instance(state.instance_id)
+
+            billing = api.get_billing(state.instance_id, usage.total_cost)
+            if force:
+                try:
+                    api.destroy_instance(state.instance_id)
+                    remote_destroyed = True
+                except Exception as exc:
+                    remote_destroyed = _is_instance_already_gone_error(exc)
+            else:
+                try:
+                    api.destroy_instance(state.instance_id)
+                    remote_destroyed = True
+                except Exception as exc:
+                    if _is_instance_already_gone_error(exc):
+                        remote_destroyed = True
+                    else:
+                        raise
+
+            if remote_destroyed:
+                try:
+                    balance_after = api.get_account_balance()
+                except Exception:
+                    pass
+
+            if (
+                billing.billed_cost is None
+                and remote_destroyed
+                and balance_before is not None
+                and balance_after is not None
+            ):
+                billed_from_balance = max(0.0, balance_before - balance_after)
+                billing = BillingInfo(estimated_cost=usage.total_cost, billed_cost=billed_from_balance)
+        finally:
+            api.client.close()
     clear_state()
-    return DownResult(usage=usage, billing=billing)
+    return DownResult(
+        usage=usage,
+        billing=billing,
+        had_active_instance=had_active_instance,
+        remote_destroyed=remote_destroyed,
+    )
 
 
 def get_status() -> RuntimeState:

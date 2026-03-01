@@ -3,3 +3,13 @@ __pycache__/
 .venv/
 .env
 *.log
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.uv-cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/

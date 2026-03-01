@@ -1,138 +1,158 @@
-# vasted
+# `vasted`
 
-`vasted` launches on-demand Vast.ai GPU workers for llama.cpp GGUF inference and keeps a stable local OpenAI-compatible `/v1` proxy endpoint.
+[![CI](https://github.com/borb/vasted/actions/workflows/ci.yml/badge.svg)](https://github.com/borb/vasted/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
+`vasted` launches on-demand Vast.ai GPU workers for `llama.cpp` GGUF inference and exposes a stable local OpenAI-compatible `/v1` endpoint.
+
+## Why Use It
+
+- Stable local endpoint while worker hosts rotate.
+- Guided setup for local machine and VPS modes.
+- OpenAI-compatible proxy for editor/agent tooling.
+- Usage and cost tracking with request/token metrics.
+- Optional Telegram bot commands (`/up`, `/down`, `/status`, `/usage`).
 
 ## Requirements
 
-- Python 3.12+
+- Python `3.12+`
 - [`uv`](https://docs.astral.sh/uv/)
-- Vast.ai account + API key
-- (Optional) Telegram bot token for chat control
+- Vast.ai account with API key
+- Optional: Telegram bot token
 
-## Stack
+## Install
 
-- `httpx` for Vast API and upstream HTTP calls
-- `starlette` + `uvicorn` for proxy server
-- `click` + `rich` for CLI UX
-- `pyyaml` for config/state persistence
-- optional `python-telegram-bot`
-
-## Architecture
-
-- `app/commands/*` — CLI command handlers
-- `app/cli.py` — command registration and entrypoint
-- `app/service.py` — worker lifecycle/business logic (`start_worker`, `stop_worker`, status/usage, budget + idle guards)
-- `app/persistence.py` — atomic YAML dataclass load/save helpers
-- `app/state.py` and `app/user_config.py` — persisted runtime/config dataclasses
-- `app/proxy.py` — OpenAI-compatible `/v1` forward proxy
-- `bot.py` — Telegram control plane built on the service layer
-
-## Quick start
-
-Choose one install path:
+Install directly from GitHub right now:
 
 ```bash
-# Option A: install as a uv tool
+uv tool install "git+https://github.com/borb/vasted.git"
+```
+
+Upgrade later:
+
+```bash
+uv tool upgrade vasted
+```
+
+For contributors/developers:
+
+```bash
+# as project tool from local checkout
 uv tool install .
+
+# development environment
+uv sync --extra dev
 ```
+
+Optional Telegram support:
 
 ```bash
-# Option B: local dev environment
-uv sync
+uv sync --extra telegram
 ```
 
-Then run setup + start:
+## Quick Start
 
 ```bash
 uv run vasted setup
 uv run vasted up
+uv run vasted status
 ```
 
-`setup` is deployment-mode driven:
-- **Local PC (default):** stable `127.0.0.1:4318` endpoint for OpenCode/OpenClaw on the same machine
-- **VPS: another device:** stable `:4318` endpoint for a remote client
-- **VPS: server + my device:** one proxy used locally on the VPS and remotely
-- **Manual / custom:** explicit host/port/public-host/Telegram overrides
+After setup, point your client at:
 
-The guided path is selection-first. You mostly choose from menus, and only type when you enter:
-- your Vast API key
-- a `Custom GGUF` model ref
+- `Base URL`: `http://<proxy_host>:<proxy_port>/v1`
+- `API key`: `Bearer <setup token>`
 
-### Example copy-paste output
+## Core Commands
 
-```text
-Setup complete
-Auto GPU floor: 1x A100 80GB
+- `vasted setup [--non-interactive] [--manual]`
+- `vasted up [--model ...] [--profile ...] [--max-price ...] [--non-interactive] [--yes]`
+- `vasted down [--force]`
+- `vasted status [--verbose]`
+- `vasted usage`
+- `vasted logs [--instance-id ...] [--tail N]`
+- `vasted serve [--watchdog] [--log-file path]`
+- `vasted token show|rotate`
+- `vasted config show`
+- `vasted profile list|add|use|remove`
+- `vasted completions <bash|zsh|fish>`
 
-━━━ Add to your client config ━━━
-Base URL: http://127.0.0.1:4318/v1
-API Key:  <stable-token>
-Model:    qwen3-coder-30b
-```
+## Telegram Bot (Optional)
 
-Use endpoint:
-
-- `http://<proxy_host>:<proxy_port>/v1`
-- `Authorization: Bearer <your_setup_token>`
-
-## Commands
-
-- `vasted setup [--non-interactive]` — setup wizard or env/flag-only config mode
-- `vasted setup --manual` — jump straight to low-level host/port/public-host/Telegram overrides
-- `vasted serve [--watchdog] [--log-file path]` — run local proxy with optional health watchdog and JSON logs
-- `vasted up [--model ...] [--profile ...] [--max-price ...]` — pick offers, show top 3, start worker
-- `vasted down [--force]` — destroy active worker (`bot.py` always uses force mode)
-- `vasted status [--verbose]` — status and proxy endpoint (worker URL only in verbose)
-- `vasted logs [--instance-id ...] [--tail N]` — fetch exported Vast instance logs for startup/debugging
-- `vasted usage` — requests/tokens/cost and $/1M tokens
-- `vasted token show` — print the current stable bearer token
-- `vasted token rotate` — explicitly rotate the bearer token and reprint client config
-- `vasted config show` — print deployment mode, endpoint, and current model settings
-- `vasted rotate-token` — legacy compatibility alias for token rotation
-- `vasted profile list|add|use|remove` — manage model/quality/GPU named profiles
-- `vasted completions <bash|zsh|fish>` — print shell completion script
-
-### Shell completion
+After setting `telegram_token` and `telegram_chat_id` in setup:
 
 ```bash
-# bash
-eval "$(vasted completions bash)"
-
-# zsh
-eval "$(vasted completions zsh)"
-
-# fish
-vasted completions fish | source
+uv run python bot.py
 ```
 
-To persist, add the command to your shell rc file.
+## Automation / Agent Mode
 
-## Curated models
-
-| Key | Hugging Face repo | File | Recommended context | Notes |
-|---|---|---|---:|---|
-| `qwen3-8b` | `bartowski/Qwen_Qwen3-8B-GGUF` | `Qwen_Qwen3-8B-Q4_K_M.gguf` | 32768 | Fast general-purpose model, great for chat and reasoning. |
-| `gemma-3-12b` | `bartowski/google_gemma-3-12b-it-GGUF` | `google_gemma-3-12b-it-Q4_K_M.gguf` | 32768 | Strong instruction following and reasoning. |
-| `qwen3-coder-30b` | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` | `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` | 65536 | Best open-source coding model, MoE architecture. |
-| `deepseek-coder-v2-lite` | `bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF` | `DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf` | 65536 | Lightweight coding model, low VRAM. |
-| `qwen2.5-7b` | `bartowski/Qwen2.5-7B-Instruct-GGUF` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 32768 | Proven speed/quality tradeoff. |
-| `qwen2.5-coder-7b` | `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | `qwen2.5-coder-7b-instruct-q4_k_m.gguf` | 65536 | Code-focused, balanced cost/quality. |
-| `codestral-22b` | `bartowski/Codestral-22B-v0.1-GGUF` | `Codestral-22B-v0.1-Q4_K_M.gguf` | 32768 | High-quality coding, needs larger GPU. |
-
-## Model input formats
-
-- Curated keys (e.g. `qwen3-8b`, `gemma-3-12b`, `qwen3-coder-30b`, `deepseek-coder-v2-lite`, `codestral-22b`)
-- Known Ollama aliases (e.g. `qwen3:8b`, `gemma3:12b`, `deepseek-coder:lite`, `codestral`)
-- Direct HF GGUF ref (`org/repo:model.gguf`)
-- Hugging Face resolve URL (`https://huggingface.co/.../resolve/main/model.gguf`)
-
-## Install as a tool
+Use non-interactive flags to avoid prompts in CI/agents:
 
 ```bash
-uv tool install .
-vasted --help
+uv run vasted setup --non-interactive --vast-api-key "$VASTED_API_KEY"
+uv run vasted up --non-interactive --yes --model qwen3-coder-30b --quality balanced --gpu-mode auto
 ```
 
-## Maintenance
+Agent-specific usage guidance is in `AGENTS.md`.
 
-Run `uv lock --upgrade` monthly to refresh dependencies.
+## PyPI (Prepared)
+
+Publishing workflow and release docs are prepped. Once the package is published, users will be able to install with:
+
+```bash
+uv tool install vasted
+```
+
+Release process documentation: `RELEASING.md`.
+
+## Model Inputs
+
+Supported model input formats:
+
+- Curated keys (`qwen3-coder-30b`, `gemma-3-12b`, ...)
+- Known Ollama aliases (`qwen3:8b`, `codestral`, ...)
+- HF GGUF ref (`org/repo:model.gguf`)
+- HF resolve URL (`https://huggingface.co/.../resolve/main/model.gguf`)
+
+## Development
+
+```bash
+uv sync --extra dev
+uv run ruff check .
+uv run mypy app tests
+uv run pytest -q
+```
+
+`CI` runs lint, typing, and tests on pushes and pull requests.
+
+## Project Layout
+
+- `app/commands/*`: CLI commands
+- `app/service.py`: worker lifecycle and policy logic
+- `app/proxy.py`: OpenAI-compatible reverse proxy
+- `app/vast.py`: Vast API client and startup script builder
+- `app/usage.py`: request/token/cost accounting
+- `app/state.py`, `app/user_config.py`: persisted state/config
+- `bot.py`: Telegram control plane
+
+## Security Notes
+
+- Keep your Vast API key and bearer token private.
+- Prefer binding proxy to localhost unless remote access is required.
+- Review `SECURITY.md` for vulnerability reporting.
+
+## Contributing
+
+See `CONTRIBUTING.md` for workflow and standards. Please run lint, mypy, and tests before opening a PR.
+
+## License
+
+MIT. See `LICENSE`.
+
+## Project Docs
+
+- `docs/spec.md`
+- `CHANGELOG.md`
+- `SECURITY.md`
+- `RELEASING.md`

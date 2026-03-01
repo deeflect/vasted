@@ -81,6 +81,26 @@ ARIA2_MAX_TRIES = 3
 DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 30
 DOWNLOAD_SPEED_TIME_SECONDS = 60
 DOWNLOAD_SPEED_LIMIT_BPS = 1_048_576
+BILLED_COST_KEYS: tuple[str, ...] = (
+    "total_cost",
+    "total_charged",
+    "charged_amount",
+    "amount_charged",
+    "billed_cost",
+    "cost",
+)
+BILLED_COST_NESTED_KEYS: tuple[str, ...] = (
+    "billing",
+    "charges",
+    "summary",
+    "instance",
+    "instances",
+    "contract",
+    "invoice",
+    "data",
+)
+BALANCE_KEYS: tuple[str, ...] = ("balance", "credit", "available_credit", "available_balance")
+BALANCE_NESTED_KEYS: tuple[str, ...] = ("user", "account", "wallet", "data", "result")
 
 
 def _sh_quote(value: str) -> str:
@@ -89,6 +109,50 @@ def _sh_quote(value: str) -> str:
 
 def _headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+
+
+def _coerce_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().replace("$", "").replace(",", "")
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _extract_numeric_by_keys(
+    payload: Any,
+    keys: tuple[str, ...],
+    container_keys: tuple[str, ...],
+    depth: int = 0,
+) -> float | None:
+    if depth > 4:
+        return None
+    if isinstance(payload, dict):
+        for key in keys:
+            if key in payload:
+                numeric = _coerce_float(payload.get(key))
+                if numeric is not None:
+                    return numeric
+        for key in container_keys:
+            if key in payload:
+                nested = _extract_numeric_by_keys(payload.get(key), keys, container_keys, depth=depth + 1)
+                if nested is not None:
+                    return nested
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            nested = _extract_numeric_by_keys(item, keys, container_keys, depth=depth + 1)
+            if nested is not None:
+                return nested
+    return None
 
 
 def _last_non_empty_line(value: str) -> str:
@@ -298,6 +362,10 @@ class VastAPI:
         if not isinstance(data, dict):
             raise VastAPIError("Unexpected response from /users/current")
         return cast(VastUserInfo, data)
+
+    def get_account_balance(self) -> float | None:
+        data = self._request("GET", "/users/current").json()
+        return _extract_numeric_by_keys(data, BALANCE_KEYS, BALANCE_NESTED_KEYS)
 
     def _offer_query(
         self,
@@ -759,9 +827,9 @@ class VastAPI:
         billed = None
         try:
             status = self.get_instance_status(instance_id)
-            billed_raw = status.get("total_cost") or status.get("cost")
-            if billed_raw is not None:
-                billed = float(str(billed_raw))
+            billed = _extract_numeric_by_keys(status, BILLED_COST_KEYS, BILLED_COST_NESTED_KEYS)
+            if billed is not None:
+                billed = max(0.0, billed)
         except Exception:
             pass
         return BillingInfo(estimated_cost=estimated_cost, billed_cost=billed)

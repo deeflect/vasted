@@ -1,3 +1,5 @@
+import pytest
+
 from app.models import resolve_model
 from app.service import (
     InventoryAttempt,
@@ -6,9 +8,31 @@ from app.service import (
     _looks_like_fit_failure,
     check_inventory,
     start_worker,
+    stop_worker,
 )
 from app.state import RuntimeState
+from app.usage import UsageSummary
 from app.user_config import UserConfig
+from app.vast import BillingInfo
+
+
+def _usage_sample(total_cost: float = 1.23) -> UsageSummary:
+    return UsageSummary(
+        requests=1,
+        input_tokens=0,
+        output_tokens=0,
+        prompt_ms_total=0.0,
+        predicted_ms_total=0.0,
+        avg_output_tokens_per_second=0.0,
+        duration_seconds=1.0,
+        total_cost=total_cost,
+        input_cost=0.0,
+        output_cost=0.0,
+        overhead_cost=total_cost,
+        blended_dollars_per_million_tokens=0.0,
+        input_dollars_per_million_tokens=0.0,
+        output_dollars_per_million_tokens=0.0,
+    )
 
 
 class _FakeAPI:
@@ -154,3 +178,185 @@ def test_start_worker_escalates_after_fit_probe_failure(monkeypatch) -> None:
     assert result.instance_id == 2
     assert fake_api.created == [1, 2]
     assert fake_api.destroyed == [1]
+
+
+def test_stop_worker_uses_balance_delta_when_billed_cost_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import service
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _FakeAPI:
+        def __init__(self) -> None:
+            self.client = _FakeClient()
+            self.destroyed: list[int] = []
+            self._balances = iter([10.0, 9.25])
+
+        def get_account_balance(self) -> float:
+            return float(next(self._balances))
+
+        def get_billing(self, instance_id: int, estimated_cost: float) -> BillingInfo:
+            return BillingInfo(estimated_cost=estimated_cost, billed_cost=None)
+
+        def destroy_instance(self, instance_id: int) -> None:
+            self.destroyed.append(instance_id)
+
+    fake_api = _FakeAPI()
+    usage = _usage_sample(total_cost=1.23)
+    cleared: list[bool] = []
+
+    monkeypatch.setattr(
+        service,
+        "require_config",
+        lambda: UserConfig(vast_api_key_plain="vast", bearer_token_plain="token"),
+    )
+    monkeypatch.setattr(service, "load_state", lambda: RuntimeState(instance_id=321))
+    monkeypatch.setattr(service, "summarize_usage", lambda: usage)
+    monkeypatch.setattr(service, "_api", lambda cfg: fake_api)
+    monkeypatch.setattr(service, "clear_state", lambda: cleared.append(True))
+
+    result = stop_worker()
+
+    assert result.billing.estimated_cost == pytest.approx(1.23)
+    assert result.billing.billed_cost == pytest.approx(0.75)
+    assert result.had_active_instance
+    assert result.remote_destroyed
+    assert fake_api.destroyed == [321]
+    assert fake_api.client.closed
+    assert cleared == [True]
+
+
+def test_stop_worker_keeps_direct_billed_cost_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import service
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _FakeAPI:
+        def __init__(self) -> None:
+            self.client = _FakeClient()
+            self.destroyed: list[int] = []
+            self._balances = iter([10.0, 8.0])
+
+        def get_account_balance(self) -> float:
+            return float(next(self._balances))
+
+        def get_billing(self, instance_id: int, estimated_cost: float) -> BillingInfo:
+            return BillingInfo(estimated_cost=estimated_cost, billed_cost=0.42)
+
+        def destroy_instance(self, instance_id: int) -> None:
+            self.destroyed.append(instance_id)
+
+    fake_api = _FakeAPI()
+    usage = _usage_sample(total_cost=1.23)
+
+    monkeypatch.setattr(
+        service,
+        "require_config",
+        lambda: UserConfig(vast_api_key_plain="vast", bearer_token_plain="token"),
+    )
+    monkeypatch.setattr(service, "load_state", lambda: RuntimeState(instance_id=321))
+    monkeypatch.setattr(service, "summarize_usage", lambda: usage)
+    monkeypatch.setattr(service, "_api", lambda cfg: fake_api)
+    monkeypatch.setattr(service, "clear_state", lambda: None)
+
+    result = stop_worker()
+
+    assert result.billing.billed_cost == pytest.approx(0.42)
+    assert result.had_active_instance
+    assert result.remote_destroyed
+    assert fake_api.destroyed == [321]
+    assert fake_api.client.closed
+
+
+def test_stop_worker_no_active_instance_clears_state_without_remote_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import service
+
+    cleared: list[bool] = []
+    usage = _usage_sample(total_cost=0.0)
+
+    monkeypatch.setattr(service, "load_state", lambda: RuntimeState())
+    monkeypatch.setattr(service, "summarize_usage", lambda: usage)
+    monkeypatch.setattr(service, "clear_state", lambda: cleared.append(True))
+    monkeypatch.setattr(service, "require_config", lambda: (_ for _ in ()).throw(AssertionError("should not load cfg")))
+
+    result = stop_worker()
+
+    assert not result.had_active_instance
+    assert not result.remote_destroyed
+    assert result.billing.billed_cost is None
+    assert cleared == [True]
+
+
+def test_stop_worker_treats_not_found_destroy_as_already_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import service
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _FakeAPI:
+        def __init__(self) -> None:
+            self.client = _FakeClient()
+            self.destroyed: list[int] = []
+            self._balances = iter([5.0, 5.0])
+
+        def get_account_balance(self) -> float:
+            return float(next(self._balances))
+
+        def get_billing(self, instance_id: int, estimated_cost: float) -> BillingInfo:
+            return BillingInfo(estimated_cost=estimated_cost, billed_cost=None)
+
+        def destroy_instance(self, instance_id: int) -> None:
+            self.destroyed.append(instance_id)
+            raise RuntimeError("DELETE /instances/321 failed with 404 not found")
+
+    fake_api = _FakeAPI()
+    usage = _usage_sample(total_cost=0.8)
+
+    monkeypatch.setattr(
+        service,
+        "require_config",
+        lambda: UserConfig(vast_api_key_plain="vast", bearer_token_plain="token"),
+    )
+    monkeypatch.setattr(service, "load_state", lambda: RuntimeState(instance_id=321))
+    monkeypatch.setattr(service, "summarize_usage", lambda: usage)
+    monkeypatch.setattr(service, "_api", lambda cfg: fake_api)
+    monkeypatch.setattr(service, "clear_state", lambda: None)
+
+    result = stop_worker(force=False)
+
+    assert result.had_active_instance
+    assert result.remote_destroyed
+    assert fake_api.destroyed == [321]
+    assert fake_api.client.closed
+
+
+def test_stop_worker_force_without_config_clears_local_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import service
+
+    cleared: list[bool] = []
+    usage = _usage_sample(total_cost=0.5)
+
+    monkeypatch.setattr(service, "load_state", lambda: RuntimeState(instance_id=999))
+    monkeypatch.setattr(service, "summarize_usage", lambda: usage)
+    monkeypatch.setattr(service, "require_config", lambda: (_ for _ in ()).throw(RuntimeError("missing config")))
+    monkeypatch.setattr(service, "clear_state", lambda: cleared.append(True))
+
+    result = stop_worker(force=True)
+
+    assert result.had_active_instance
+    assert not result.remote_destroyed
+    assert result.billing.billed_cost is None
+    assert cleared == [True]

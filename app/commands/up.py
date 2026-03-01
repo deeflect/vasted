@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import click
 from rich.panel import Panel
 from rich.prompt import Confirm
@@ -61,6 +63,31 @@ def _print_inventory_summary(inventory: InventoryCheck, minimum_gpu_preset: str)
         console.print(f"[yellow]{_inventory_message(inventory, minimum_gpu_preset)}[/yellow]")
 
 
+def _budget_confirmation_message(best_price: float, budget: float) -> str:
+    return f"Best offer is ${best_price:.4f}/hr above max ${budget:.4f}. Continue?"
+
+
+def _enforce_budget_confirmation(
+    *,
+    best_price: float,
+    budget: float,
+    assume_yes: bool,
+    non_interactive: bool,
+    stdin_is_tty: bool,
+) -> None:
+    if budget <= 0 or best_price <= budget:
+        return
+
+    prompt = _budget_confirmation_message(best_price, budget)
+    if assume_yes:
+        console.print(f"[yellow]{prompt} Continuing due to --yes.[/yellow]")
+        return
+    if non_interactive or not stdin_is_tty:
+        raise click.ClickException(f"{prompt} Re-run with --yes to continue in non-interactive mode.")
+    if not Confirm.ask(prompt, default=False):
+        raise click.ClickException("Cancelled")
+
+
 @click.command()
 @click.option("--model", "model_override", default=None)
 @click.option("--quality", "quality_override", default=None)
@@ -70,6 +97,13 @@ def _print_inventory_summary(inventory: InventoryCheck, minimum_gpu_preset: str)
 @click.option("--max-price", type=float, default=None)
 @click.option("--force", is_flag=True, default=False)
 @click.option("--serve/--no-serve", "auto_serve", default=True)
+@click.option("--yes", "assume_yes", is_flag=True, default=False, help="Auto-confirm prompts (for automation).")
+@click.option(
+    "--non-interactive",
+    is_flag=True,
+    default=False,
+    help="Never prompt. Fails if confirmation is needed unless --yes is provided.",
+)
 def up(
     model_override: str | None,
     quality_override: str | None,
@@ -79,6 +113,8 @@ def up(
     max_price: float | None,
     force: bool,
     auto_serve: bool,
+    assume_yes: bool,
+    non_interactive: bool,
 ) -> None:
     try:
         cfg = require_config()
@@ -128,14 +164,13 @@ def up(
             console.print(table)
             best_price = float(top[0].get("dph_total") or top[0].get("dph") or 0.0)
             budget = max_price if max_price is not None else cfg.max_hourly_cost
-            if (
-                budget > 0
-                and best_price > budget
-                and not Confirm.ask(
-                    f"Best offer is ${best_price:.4f}/hr above max ${budget:.4f}. Continue?", default=False
-                )
-            ):
-                raise click.ClickException("Cancelled")
+            _enforce_budget_confirmation(
+                best_price=best_price,
+                budget=budget,
+                assume_yes=assume_yes,
+                non_interactive=non_interactive,
+                stdin_is_tty=sys.stdin.isatty(),
+            )
         else:
             message = _inventory_message(inventory, plan.selected_gpu_preset)
             error_panel("No safe inventory", message)

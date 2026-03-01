@@ -15,6 +15,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
       - name: Mypy
-        run: uv run mypy app bot.py
+        run: uv run mypy app tests bot.py
       - name: Pytest
-        run: uv run pytest
+        run: uv run pytest -q

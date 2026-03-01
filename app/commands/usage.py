@@ -18,6 +18,7 @@ def usage() -> None:
     t.add_row("Output tokens", f"{u.output_tokens:,}")
     t.add_row("Prompt time", f"{u.prompt_ms_total / 1000:.2f}s")
     t.add_row("Decode time", f"{u.predicted_ms_total / 1000:.2f}s")
+    t.add_row("Avg output tok/s", f"{u.avg_output_tokens_per_second:.2f}")
     t.add_row("Duration", format_duration(u.duration_seconds))
     t.add_row("Total cost", f"${u.total_cost:.4f}")
     t.add_row("Input cost (active)", f"${u.input_cost:.4f}")
