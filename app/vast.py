@@ -382,7 +382,7 @@ class VastAPI:
             "rentable": {"eq": True},
             "rented": {"eq": False},
             "gpu_name": {"eq": preset.vast_gpu_names[0]},
-            "gpu_ram": {"gte": preset.min_vram_gb * 1024},
+            "gpu_ram": {"gte": preset.min_vram_gb * 1000},
             "num_gpus": {"eq": preset.num_gpus},
             "direct_port_count": {"gte": 1},
             "disk_space": {"gte": min_disk_gb},

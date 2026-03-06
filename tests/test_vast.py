@@ -9,7 +9,7 @@ def test_offer_query_uses_vast_aliases_and_mib_units() -> None:
     api = VastAPI("test")
     query = api._offer_query("1xa100-80gb", min_disk_gb=40, min_cuda_max_good=12.8)
     assert query["gpu_name"] == {"in": ["A100 SXM4", "A100 PCIe"]}
-    assert query["gpu_ram"] == {"gte": 81920}
+    assert query["gpu_ram"] == {"gte": 80000}
     assert query["num_gpus"] == {"eq": 1}
     assert query["direct_port_count"] == {"gte": 1}
     assert query["disk_space"] == {"gte": 40}
@@ -19,7 +19,7 @@ def test_offer_query_uses_vast_aliases_and_mib_units() -> None:
 
     relaxed = api._offer_query("1xh100", relaxed=True, min_disk_gb=64, min_cuda_max_good=12.8)
     assert relaxed["gpu_name"] == {"in": ["H100 SXM5", "H100 PCIe", "H100 NVL"]}
-    assert relaxed["gpu_ram"] == {"gte": 81920}
+    assert relaxed["gpu_ram"] == {"gte": 80000}
     assert relaxed["disk_space"] == {"gte": 64}
     assert relaxed["allocated_storage"] == 64.0
     assert relaxed["cuda_max_good"] == {"gte": 12.8}
