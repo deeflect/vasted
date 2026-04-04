@@ -205,7 +205,11 @@ def prepare_launch(
     if requested_gpu_preset not in GPU_PRESETS:
         raise RuntimeError(f"Unknown GPU preset: {requested_gpu_preset}")
     selected_gpu_preset = sizing.minimum_gpu_preset
-    if gpu_mode == "manual":
+    if gpu_preset_override:
+        # Allow explicit --gpu-preset to override the sizer (e.g. MoE models
+        # where active params << total params and the sizer overestimates).
+        selected_gpu_preset = requested_gpu_preset
+    elif gpu_mode == "manual":
         if GPU_PRESETS[requested_gpu_preset].total_vram_gb < GPU_PRESETS[sizing.minimum_gpu_preset].total_vram_gb:
             raise RuntimeError(
                 f"Selected GPU preset {requested_gpu_preset} is too small for {quality_profile} "

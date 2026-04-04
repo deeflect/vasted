@@ -3,9 +3,11 @@ from app.sizing import (
     _estimate_kv_cache_gb,
     _fetch_model_payload,
     _head_file_size_gb,
+    estimate_active_params_b,
     fetch_model_file_size_gb,
     plan_launch_sizing,
     quality_context,
+    supported_quality_keys,
 )
 
 
@@ -13,12 +15,29 @@ def test_quality_context_targets() -> None:
     assert quality_context("fast") == 32768
     assert quality_context("balanced") == 65536
     assert quality_context("max") == 131072
+    assert quality_context("ultra") == 262144
 
 
 def test_launch_sizing_uses_curated_floor_for_large_coder() -> None:
     sizing = plan_launch_sizing(resolve_model("qwen3-coder-30b"), "balanced")
-    assert sizing.minimum_gpu_preset == "1xa100-80gb"
+    assert sizing.minimum_gpu_preset == "1xl40s"
     assert sizing.target_context == 65536
+
+
+def test_supported_quality_keys_respect_model_context_cap(monkeypatch) -> None:
+    monkeypatch.setattr("app.sizing._fetch_model_config", lambda _spec: {"max_position_embeddings": 131072})
+    keys = supported_quality_keys(resolve_model("org/repo:model.gguf"))
+    assert keys == ["fast", "balanced", "max"]
+
+
+def test_quality_context_clamps_to_model_max(monkeypatch) -> None:
+    monkeypatch.setattr("app.sizing._fetch_model_config", lambda _spec: {"max_position_embeddings": 131072})
+    assert quality_context("ultra", resolve_model("org/repo:model.gguf")) == 131072
+
+
+def test_active_param_hint_from_name() -> None:
+    spec = resolve_model("org/model-35B-A3B-GGUF:model-Q4_K_M.gguf")
+    assert estimate_active_params_b(spec) == 3.0
 
 
 def test_fetch_model_file_size_falls_back_to_head(monkeypatch) -> None:

@@ -180,6 +180,7 @@ QUALITY_PROFILES: dict[str, QualityProfile] = {
     "fast": QualityProfile("fast", 32768, "Lower-cost coding and agentic tasks"),
     "balanced": QualityProfile("balanced", 65536, "Best default for coding and agents"),
     "max": QualityProfile("max", 131072, "Very long context coding and tool workflows"),
+    "ultra": QualityProfile("ultra", 262144, "Ultra-long context workflows when the model supports it"),
 }
 
 

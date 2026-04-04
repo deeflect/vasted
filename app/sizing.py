@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -10,11 +11,15 @@ from app.config import CURATED_MODELS, GPU_PRESETS, QUALITY_PROFILES
 from app.models import ModelSpec
 
 CURATED_GPU_FLOORS: dict[str, dict[str, str]] = {
-    "qwen3-coder-30b": {"fast": "1xa100-80gb", "balanced": "1xa100-80gb", "max": "2xa100-80gb"},
-    "qwen2.5-coder-7b": {"fast": "1xrtx4090", "balanced": "1xl40s", "max": "1xa100-80gb"},
-    "qwen3-8b": {"fast": "1xrtx4090", "balanced": "1xl40s", "max": "1xa100-80gb"},
-    "gemma-3-12b": {"fast": "1xl40s", "balanced": "1xl40s", "max": "1xa100-80gb"},
+    "qwen3-coder-30b": {"fast": "1xrtx4090", "balanced": "1xl40s", "max": "1xl40s", "ultra": "1xa100-80gb"},
+    "qwen2.5-coder-7b": {"fast": "1xrtx4090", "balanced": "1xl40s", "max": "1xa100-80gb", "ultra": "1xa100-80gb"},
+    "qwen3-8b": {"fast": "1xrtx4090", "balanced": "1xl40s", "max": "1xa100-80gb", "ultra": "1xa100-80gb"},
+    "gemma-3-12b": {"fast": "1xl40s", "balanced": "1xl40s", "max": "1xa100-80gb", "ultra": "1xa100-80gb"},
 }
+
+_BASE_MODEL_TAG_RE = re.compile(r"^base_model(?::quantized)?:([^:\s]+/[^:\s]+)$")
+_ACTIVE_PARAMS_RE = re.compile(r"\ba(\d+(?:\.\d+)?)b\b", re.IGNORECASE)
+_CONTEXT_HINT_RE = re.compile(r"(?<!\d)(\d{2,3})k(?!\d)", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,10 +44,126 @@ def iter_candidate_gpu_keys(minimum_key: str) -> Iterable[str]:
     yield from keys[start:]
 
 
-def quality_context(quality_profile: str) -> int:
+def _normalize_model_config(payload: dict) -> dict:
+    text_cfg = payload.get("text_config")
+    if isinstance(text_cfg, dict) and text_cfg:
+        return text_cfg
+    return payload
+
+
+def _is_repo_slug(value: str) -> bool:
+    return bool(re.fullmatch(r"[^/\s]+/[^/\s]+", value))
+
+
+def _extract_base_model_repo(payload: dict) -> str | None:
+    card_data = payload.get("cardData")
+    if isinstance(card_data, dict):
+        base_model = card_data.get("base_model")
+        if isinstance(base_model, str) and _is_repo_slug(base_model):
+            return base_model
+        if isinstance(base_model, list):
+            for item in base_model:
+                if isinstance(item, str) and _is_repo_slug(item):
+                    return item
+
+    tags = payload.get("tags")
+    if isinstance(tags, list):
+        for tag in tags:
+            if not isinstance(tag, str):
+                continue
+            match = _BASE_MODEL_TAG_RE.match(tag)
+            if match and _is_repo_slug(match.group(1)):
+                return match.group(1)
+    return None
+
+
+def _candidate_config_repos(model_spec: ModelSpec) -> list[str]:
+    repos = [model_spec.hf_repo]
+    try:
+        payload = _fetch_model_payload(model_spec.hf_repo)
+        base_repo = _extract_base_model_repo(payload)
+        if base_repo and base_repo not in repos:
+            repos.append(base_repo)
+    except Exception:
+        pass
+    return repos
+
+
+@lru_cache(maxsize=256)
+def _fetch_repo_config(repo: str) -> dict:
+    try:
+        resp = httpx.get(
+            f"https://huggingface.co/{repo}/raw/main/config.json",
+            timeout=20.0,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return _normalize_model_config(payload)
+
+
+def _fetch_model_config(model_spec: ModelSpec) -> dict:
+    for repo in _candidate_config_repos(model_spec):
+        cfg = _fetch_repo_config(repo)
+        if cfg:
+            return cfg
+    return {}
+
+
+def _context_hint_from_name(model_spec: ModelSpec) -> int | None:
+    haystack = f"{model_spec.name} {model_spec.hf_repo} {model_spec.filename}"
+    values = [int(match.group(1)) for match in _CONTEXT_HINT_RE.finditer(haystack)]
+    if not values:
+        return None
+    return max(values) * 1024
+
+
+def model_max_context(model_spec: ModelSpec) -> int | None:
+    config = _fetch_model_config(model_spec)
+    candidates: list[int] = []
+    for key in ("max_position_embeddings", "model_max_length", "max_seq_len", "seq_length", "n_ctx"):
+        value = config.get(key)
+        if isinstance(value, int) and value > 0:
+            candidates.append(value)
+
+    rope_scaling = config.get("rope_scaling")
+    if isinstance(rope_scaling, dict):
+        for key in ("original_max_position_embeddings", "max_position_embeddings"):
+            value = rope_scaling.get(key)
+            if isinstance(value, int) and value > 0:
+                candidates.append(value)
+
+    if candidates:
+        return max(candidates)
+
+    return _context_hint_from_name(model_spec)
+
+
+def supported_quality_keys(model_spec: ModelSpec | None = None) -> list[str]:
+    keys = list(QUALITY_PROFILES.keys())
+    if model_spec is None:
+        return keys
+    max_ctx = model_max_context(model_spec)
+    if max_ctx is None:
+        return keys
+    supported = [key for key in keys if QUALITY_PROFILES[key].context_length <= max_ctx]
+    return supported or [keys[0]]
+
+
+def quality_context(quality_profile: str, model_spec: ModelSpec | None = None) -> int:
     if quality_profile not in QUALITY_PROFILES:
         raise ValueError(f"Unknown quality profile: {quality_profile}")
-    return QUALITY_PROFILES[quality_profile].context_length
+    requested = QUALITY_PROFILES[quality_profile].context_length
+    if model_spec is None:
+        return requested
+    max_ctx = model_max_context(model_spec)
+    if max_ctx is None:
+        return requested
+    return min(requested, max_ctx)
 
 
 @lru_cache(maxsize=256)
@@ -99,28 +220,47 @@ def fetch_model_file_size_gb(model_spec: ModelSpec) -> float:
         raise ValueError(f"Could not determine GGUF file size for {model_spec.hf_repo}:{model_spec.filename}") from exc
 
 
-@lru_cache(maxsize=128)
-def _fetch_model_config(repo: str) -> dict:
-    try:
-        resp = httpx.get(
-            f"https://huggingface.co/{repo}/raw/main/config.json",
-            timeout=20.0,
-            follow_redirects=True,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+def estimate_active_params_b(model_spec: ModelSpec) -> float | None:
+    haystack = f"{model_spec.name} {model_spec.hf_repo} {model_spec.filename}"
+    name_hits = [float(match.group(1)) for match in _ACTIVE_PARAMS_RE.finditer(haystack)]
+    if name_hits:
+        return max(name_hits)
+
+    config = _fetch_model_config(model_spec)
+    for key in ("active_parameters", "active_parameter_count", "num_active_parameters"):
+        value = config.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value) / 1_000_000_000 if value > 1000 else float(value)
+
+    num_layers = config.get("num_hidden_layers")
+    hidden_size = config.get("hidden_size")
+    num_experts_per_tok = config.get("num_experts_per_tok")
+    moe_intermediate_size = config.get("moe_intermediate_size")
+    required_values = (num_layers, hidden_size, num_experts_per_tok, moe_intermediate_size)
+    if not all(isinstance(v, int) and v > 0 for v in required_values):
+        return None
+    shared = config.get("shared_expert_intermediate_size")
+    shared_expert = shared if isinstance(shared, int) and shared > 0 else 0
+
+    # Coarse estimate: active MoE FFN work + dense attention projection cost.
+    active_per_layer = (
+        4 * hidden_size * hidden_size
+        + 3 * hidden_size * (num_experts_per_tok * moe_intermediate_size + shared_expert)
+    )
+    return float(active_per_layer * num_layers) / 1_000_000_000
 
 
 def _estimate_kv_cache_gb(model_spec: ModelSpec, target_context: int) -> float | None:
-    config = _fetch_model_config(model_spec.hf_repo)
+    config = _fetch_model_config(model_spec)
     num_layers = config.get("num_hidden_layers")
     if not isinstance(num_layers, int) or num_layers <= 0:
         return None
 
     head_dim = config.get("head_dim")
+    if not isinstance(head_dim, int) or head_dim <= 0:
+        linear_head_dim = config.get("linear_value_head_dim")
+        if isinstance(linear_head_dim, int) and linear_head_dim > 0:
+            head_dim = linear_head_dim
     if not isinstance(head_dim, int) or head_dim <= 0:
         hidden_size = config.get("hidden_size")
         num_heads = config.get("num_attention_heads")
@@ -129,7 +269,10 @@ def _estimate_kv_cache_gb(model_spec: ModelSpec, target_context: int) -> float |
     if not isinstance(head_dim, int) or head_dim <= 0:
         return None
 
-    num_kv_heads = config.get("num_key_value_heads", config.get("num_attention_heads"))
+    num_kv_heads = config.get(
+        "num_key_value_heads",
+        config.get("linear_num_value_heads", config.get("num_attention_heads")),
+    )
     if not isinstance(num_kv_heads, int) or num_kv_heads <= 0:
         return None
 
@@ -139,13 +282,27 @@ def _estimate_kv_cache_gb(model_spec: ModelSpec, target_context: int) -> float |
 
 def _estimate_required_vram_gb(model_spec: ModelSpec, target_context: int, model_size_gb: float) -> float:
     # Weight residency is dominated by the GGUF file, while KV cache is architecture-dependent.
+    active_params_b = estimate_active_params_b(model_spec)
     kv_cache_gb = _estimate_kv_cache_gb(model_spec, target_context)
     if kv_cache_gb is None:
-        # Fallback when model config is missing: keep a conservative default, but do not
-        # scale KV directly with total file size because that badly overstates MoE models.
+        # Fallback when model config is missing: keep conservative defaults, but use
+        # active-parameter hints for MoE models so we avoid chronic oversizing.
         context_blocks = max(1.0, target_context / 32768.0)
-        kv_cache_gb = max(6.0, context_blocks * 6.0)
-    runtime_reserve_gb = max(4.0, model_size_gb * 0.2)
+        baseline_per_32k = 6.0
+        if active_params_b is not None:
+            baseline_per_32k = max(2.0, min(6.0, active_params_b * 0.8))
+        kv_cache_gb = max(baseline_per_32k, context_blocks * baseline_per_32k)
+
+    reserve_floor = 4.0
+    reserve_ratio = 0.2
+    if active_params_b is not None:
+        if active_params_b <= 4.5:
+            reserve_floor = 2.0
+            reserve_ratio = 0.1
+        elif active_params_b <= 8.0:
+            reserve_floor = 3.0
+            reserve_ratio = 0.15
+    runtime_reserve_gb = max(reserve_floor, model_size_gb * reserve_ratio)
     return model_size_gb + kv_cache_gb + runtime_reserve_gb
 
 
@@ -177,15 +334,22 @@ def _apply_curated_floor(model_spec: ModelSpec, quality_profile: str, selected_k
 
 
 def plan_launch_sizing(model_spec: ModelSpec, quality_profile: str) -> LaunchSizing:
-    target_context = quality_context(quality_profile)
+    requested_context = quality_context(quality_profile)
+    target_context = quality_context(quality_profile, model_spec)
     model_size_gb = fetch_model_file_size_gb(model_spec)
     required_vram_gb = _estimate_required_vram_gb(model_spec, target_context, model_size_gb)
     minimum_gpu_preset = _pick_smallest_gpu(required_vram_gb)
     minimum_gpu_preset = _apply_curated_floor(model_spec, quality_profile, minimum_gpu_preset)
-    rationale = (
+    rationale_parts = [
         f"{model_size_gb:.1f} GB GGUF + {target_context // 1024}k context + runtime reserve "
         f"requires about {required_vram_gb:.1f} GB VRAM"
-    )
+    ]
+    active_params = estimate_active_params_b(model_spec)
+    if active_params is not None:
+        rationale_parts.append(f"active params hint: ~{active_params:.1f}B")
+    if target_context < requested_context:
+        rationale_parts.append(f"requested {requested_context // 1024}k clamped to model max")
+    rationale = "; ".join(rationale_parts)
     return LaunchSizing(
         target_context=target_context,
         model_size_gb=model_size_gb,

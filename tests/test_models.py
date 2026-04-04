@@ -73,7 +73,7 @@ def test_suggest_gpu_preset() -> None:
     assert suggest_gpu_preset(resolve_model("qwen3-8b"), "fast") == "1xrtx4090"
     assert suggest_gpu_preset(resolve_model("qwen3-8b"), "balanced") == "1xl40s"
     assert suggest_gpu_preset(resolve_model("codestral"), "balanced") == "1xl40s"
-    assert suggest_gpu_preset(resolve_model("qwen3-coder-30b"), "balanced") == "1xa100-80gb"
+    assert suggest_gpu_preset(resolve_model("qwen3-coder-30b"), "balanced") == "1xl40s"
 
 
 def test_featured_models_include_coding_defaults() -> None:

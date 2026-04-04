@@ -12,6 +12,7 @@ from app.client_config import OPENCODE_CONFIG_PATH, render_opencode_config, writ
 from app.commands.common import console, print_client_config
 from app.config import CURATED_MODELS, GPU_PRESETS, QUALITY_PROFILES
 from app.models import choose_default_gguf_file, featured_model_keys, resolve_model, suggest_gpu_preset
+from app.sizing import quality_context, supported_quality_keys
 from app.user_config import UserConfig, load_config, save_config
 from app.vast import VastAPI, VastAuthError
 
@@ -195,8 +196,12 @@ def _choose_custom_repo_file(repo: str, filenames: list[str]) -> str:
     return filenames[idx]
 
 
-def _pick_quality(default_quality: str) -> str:
-    quality_keys = list(QUALITY_PROFILES.keys())
+def _pick_quality(model_value: str, default_quality: str) -> str:
+    try:
+        model_spec = resolve_model(model_value)
+        quality_keys = supported_quality_keys(model_spec)
+    except Exception:
+        quality_keys = list(QUALITY_PROFILES.keys())
     rows = [
         [
             str(i + 1),
@@ -321,7 +326,10 @@ def _maybe_configure_opencode(cfg: UserConfig) -> None:
     if choice == 0:
         return
 
-    context_length = QUALITY_PROFILES[cfg.quality_profile].context_length
+    try:
+        context_length = quality_context(cfg.quality_profile, resolve_model(cfg.model))
+    except Exception:
+        context_length = QUALITY_PROFILES[cfg.quality_profile].context_length
     set_default_model = choice == 2
     try:
         write_or_merge_opencode_config(
@@ -458,7 +466,7 @@ def setup(
     mode = "manual" if manual else _pick_deployment_mode(cfg.deployment_mode)
     cfg.vast_api_key_plain = _validate_api_key_loop(cfg.vast_api_key_plain, cfg.vast_base_url)
     cfg.model = _pick_model(cfg.model if cfg.model in CURATED_MODELS else "qwen3-coder-30b")
-    cfg.quality_profile = _pick_quality(cfg.quality_profile)
+    cfg.quality_profile = _pick_quality(cfg.model, cfg.quality_profile)
     cfg.gpu_mode = _pick_gpu_mode(cfg.gpu_mode)
     if cfg.gpu_mode == "manual":
         cfg.gpu_preset = _pick_gpu_preset(cfg.gpu_preset)
