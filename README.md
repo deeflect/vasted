@@ -5,8 +5,6 @@
 
 `vasted` is a CLI that launches on-demand Vast.ai GPU workers for `llama.cpp` GGUF inference and exposes a stable OpenAI-compatible `/v1` endpoint.
 
-Built by [deeflect.com](https://deeflect.com) · Follow on X: [x.com/deeflectcom](https://x.com/deeflectcom)
-
 ## Demo
 
 ![vasted demo](docs/assets/demo.gif)
@@ -189,3 +187,13 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) and run the validation commands before 
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+
+---
+
+### Built by
+
+Built by [Dee](https://deeflect.com). Started as "just spin up a GPU for an hour" and grew a control plane, a Telegram bot, and an OpenAI-compatible proxy. Such is life.
+
+Star if vasted spared you the AWS GPU pricing calculator. [Open an issue](https://github.com/deeflect/vasted/issues) if Vast.ai changes its API again (they will).
+
+[deeflect.com](https://deeflect.com) · [Wikidata](https://www.wikidata.org/entity/Q138828544) · [LinkedIn](https://www.linkedin.com/in/dkargaev/) · [X](https://x.com/deeflectcom)
